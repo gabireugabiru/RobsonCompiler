@@ -1,0 +1,30 @@
+robson robson robson robson
+comeu 0
+comeu 12
+lambeu :crash
+
+robson robson robson robson
+comeu 4
+comeu 4
+lambeu :seccond
+
+crash:
+robson robson robson
+chupou 32
+
+seccond: 
+robson robson
+comeu 0
+comeu 2
+lambeu :third
+
+crash1:
+robson robson robson
+chupou 32
+
+third:
+robson robson
+comeu 4
+comeu 2
+lambeu :crash1
+

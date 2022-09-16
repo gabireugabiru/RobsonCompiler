@@ -1,0 +1,43 @@
+robson
+comeu 0
+comeu f1.6
+comeu f1.2
+
+robson robson robson robson
+comeu f2.8
+chupou 0
+lambeu :seccond
+
+robson robson robson robson robson robson robson robson
+robson robson robson
+chupou 32
+
+seccond: 
+
+
+robson
+comeu 0
+comeu i-8
+comeu i6
+
+
+robson robson robson robson
+chupou 0
+comeu i-2
+lambeu :end
+
+robson robson robson
+chupou 32
+
+end:
+robson robson robson
+comeu f12.5
+
+robson robson robson robson robson robson robson robson robson robson
+comeu 0
+
+robson
+comeu 0
+fudeu 0
+comeu f1
+

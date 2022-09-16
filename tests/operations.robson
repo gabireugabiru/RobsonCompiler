@@ -1,0 +1,67 @@
+robson
+comeu 0
+comeu 12
+comeu 2
+
+robson robson robson robson
+chupou 0
+comeu 14
+lambeu :seccond
+
+crash:
+robson robson robson robson robson robson robson robson
+robson robson robson
+chupou 32
+
+seccond: 
+
+robson
+comeu 1
+comeu 12
+comeu 2
+
+robson robson robson robson
+chupou 0
+comeu 10
+lambeu :third
+
+crash1:
+robson robson robson robson robson robson robson robson
+robson robson robson
+chupou 32
+
+third:
+
+robson
+comeu 2
+comeu 2
+comeu 3
+
+robson robson robson robson
+chupou 0
+comeu 6
+lambeu :forth 
+
+crash2: 
+robson robson robson robson robson robson robson robson
+robson robson robson
+chupou 32
+
+forth:
+robson
+comeu 3
+comeu 8
+comeu 2
+
+robson robson robson robson
+chupou 0
+comeu 4
+lambeu :end
+
+crash3:
+robson robson robson robson robson robson robson robson
+robson robson robson
+chupou 32
+
+end:
+
