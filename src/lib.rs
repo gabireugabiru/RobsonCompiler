@@ -30,7 +30,7 @@ pub trait Infra {
   fn hide_cursor(&mut self) -> Result<(), IError>;
   fn show_cursor(&mut self) -> Result<(), IError>;
   fn move_cursor(&mut self, x: u32, y: u32) -> Result<(), IError>;
-  // fn clone_self(&mut self) -> Box<dyn Infra>;
+  fn use_color(&mut self, color: u32) -> Result<(), IError>;
 }
 
 pub trait CompilerInfra {
@@ -40,7 +40,7 @@ pub trait CompilerInfra {
 }
 
 pub fn print_file_buffer(buffer: Vec<u8>) {
-  let mut command = 1;
+  let mut command = 0;
   let mut index = 0;
   while index < buffer.len() {
     let opcode = buffer[index];

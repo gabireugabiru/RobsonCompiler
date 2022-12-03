@@ -1,4 +1,6 @@
-use crate::{compiler::Compiler, interpreter::Interpreter, Infra};
+use crate::{
+  compiler::Compiler, interpreter::Interpreter, CompilerInfra, Infra,
+};
 
 pub struct TestInfra {
   stdin: String,
@@ -12,6 +14,20 @@ impl TestInfra {
     })
   }
 }
+impl CompilerInfra for TestInfra {
+  fn println(&mut self, to_print: String) {
+    self.stdout.push_str(&format!("{}\n", to_print))
+  }
+
+  fn clone_self(&mut self) -> Box<dyn CompilerInfra> {
+    Box::new(TestInfra {
+      stdin: String::new(),
+      stdout: String::new(),
+    })
+  }
+  fn color_print(&mut self, _: String, _: u64) {}
+}
+
 impl Infra for TestInfra {
   fn print(&mut self, to_print: String) {
     self.stdout.push_str(&to_print);
@@ -70,14 +86,11 @@ impl Infra for TestInfra {
   ) -> Result<(), crate::data_struct::IError> {
     Ok(())
   }
-  fn clone_self(&mut self) -> Box<dyn Infra> {
-    Box::new(TestInfra {
-      stdout: self.stdout.clone(),
-      stdin: self.stdout.clone(),
-    })
-  }
-  fn color_print(&mut self, to_print: String, _color: u32) {
-    self.print(to_print)
+  fn use_color(
+    &mut self,
+    _: u32,
+  ) -> Result<(), crate::data_struct::IError> {
+    Ok(())
   }
 }
 
@@ -93,7 +106,7 @@ fn push_and_print() {
   let mut interpreter =
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
 }
 #[test]
 fn jump() {
@@ -107,7 +120,7 @@ fn jump() {
   let mut interpreter =
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
 }
 
 #[test]
@@ -121,7 +134,7 @@ fn memory() {
   let mut interpreter =
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
 }
 
 #[test]
@@ -136,7 +149,7 @@ fn if_() {
   let mut interpreter =
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
 }
 #[test]
 fn input() {
@@ -151,7 +164,7 @@ fn input() {
     TestInfra::new("12\ntesteteste123".to_owned()),
   )
   .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
 }
 #[test]
 fn operations() {
@@ -165,7 +178,7 @@ fn operations() {
   let mut interpreter =
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
 }
 
 #[test]
@@ -179,7 +192,7 @@ fn types() {
   let mut interpreter =
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
 }
 
 #[test]
@@ -193,5 +206,19 @@ fn include() {
   let mut interpreter =
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
-  while !interpreter.run_buffer().unwrap() {}
+  interpreter.run_buffer().unwrap()
+}
+
+#[test]
+fn multiplelambeu() {
+  let mut compiler = Compiler::new(
+    "tests/multiplelambeu.robson".to_owned(),
+    TestInfra::new("".to_owned()),
+  )
+  .unwrap();
+  let compiled = compiler.compile().unwrap();
+  let mut interpreter =
+    Interpreter::new(&compiled, TestInfra::new(String::new()))
+      .unwrap();
+  interpreter.run_buffer().unwrap()
 }

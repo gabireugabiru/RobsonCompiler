@@ -7,6 +7,7 @@ use crossterm::{
   cursor,
   event::{poll, read, Event, KeyCode},
   queue,
+  style::{Color, ResetColor, SetForegroundColor},
   terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 
@@ -95,6 +96,18 @@ impl<'a> Infra for RunInfra<'a> {
   }
   fn move_cursor(&mut self, x: u32, y: u32) -> Result<(), IError> {
     queue!(self.stdout, cursor::MoveTo(x as u16, y as u16))?;
+    Ok(())
+  }
+  fn use_color(&mut self, color: u32) -> Result<(), IError> {
+    if color < 256 {
+      queue!(
+        self.stdout,
+        SetForegroundColor(Color::AnsiValue(color as u8))
+      )?;
+    } else {
+      queue!(self.stdout, ResetColor)?;
+    }
+
     Ok(())
   }
 }

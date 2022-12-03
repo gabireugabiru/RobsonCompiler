@@ -60,7 +60,6 @@ impl Compiler {
   }
   pub fn inner_in(&mut self, current: usize) {
     self.inner = current + 1;
-    // println!("{}", current + 1);
   }
   pub fn set_files(
     &mut self,
@@ -158,6 +157,7 @@ impl Compiler {
         compiler.set_preload(self.is_preload);
         compiler.inner_in(self.inner);
         compiler.set_offset(self.current_command + self.offset);
+
         let buffer = compiler.compile()?;
         self.current_command += buffer.len() / 15;
         for i in buffer {
@@ -293,22 +293,19 @@ impl Compiler {
       if string.is_empty() {
         continue;
       }
-      if string.contains(':') {
-        //add alias if it is an alias
-
-        if string.ends_with(':') {
-          let value = string.trim().replace(':', "");
-          if self.names.get(&value).is_some() {
-            return Some(IError::message(format!(
-              "duplicate alias: {}",
-              value
-            )));
-          }
-          if self.debug {
-            self.infra.println(format!("{}: {}", value, pos + 1));
-          }
-          self.names.insert(value, command_number + self.offset);
+      //add alias if it is an alias
+      if string.ends_with(':') {
+        let value = string.trim().replace(':', "");
+        if self.names.get(&value).is_some() {
+          return Some(IError::message(format!(
+            "duplicated alias: {}",
+            value
+          )));
         }
+        if self.debug {
+          self.infra.println(format!("{}: {}", value, pos + 1));
+        }
+        self.names.insert(value, command_number + self.offset);
       } else {
         //if is not an check what it is
         if string.starts_with("robsons") {
@@ -322,6 +319,7 @@ impl Compiler {
           let path = splited[1];
 
           // get offset from cache if possible
+          // println!("deez {}", command_number);
           let new_offset = match self
             .get_cached_robsons_size(path, command_number)
           {
@@ -416,7 +414,6 @@ impl Compiler {
       param3_types,
       create_two_bits([param3_convert, false]),
     ));
-    // }
     self.current_command += 1;
     Ok(())
   }

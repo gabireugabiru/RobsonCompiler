@@ -315,6 +315,7 @@ fn jump(
   let value = interpreter
     .convert(param1.0, param1.1)?
     .force_u32(interpreter.current_command)?;
+  // println!("the jump ===== {value}");
   interpreter.index = (value * 15) as usize;
   Ok(())
 }
@@ -508,10 +509,20 @@ fn terminal_commands(
       interpreter.stack.pop();
       interpreter.infra.move_cursor(x, y)?;
     }
-    _ => {}
+    5 => {
+      let color = interpreter
+        .stack
+        .top()?
+        .force_u32(interpreter.current_command)?;
+
+      interpreter.infra.use_color(color)?;
+    }
+    _ => return Err(IError::message("Invalid terminal command")),
   }
   Ok(())
 }
+
+// OPCODE 16
 fn random(
   interpreter: &mut Interpreter,
   _: [(TypedByte, usize, bool); 3],
@@ -568,7 +579,15 @@ impl<'a> Interpreter<'a> {
           |int, (v1, v2)| int.stack.push(f32_add(*v1, *v2).into()),
         ],
         [
-          |int, (v1, v2)| int.stack.push(u32_sub(*v1, *v2).into()),
+          |int, (v1, v2)| {
+            int.stack.push({
+              if *v1 >= *v2 {
+                u32_sub(*v1, *v2).into()
+              } else {
+                0u32.into()
+              }
+            })
+          },
           |int, (v1, v2)| int.stack.push(i32_sub(*v1, *v2).into()),
           |int, (v1, v2)| int.stack.push(f32_sub(*v1, *v2).into()),
         ],

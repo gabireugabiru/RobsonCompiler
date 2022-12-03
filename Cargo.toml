@@ -1,6 +1,6 @@
 [package]
 name = "robson_compiler"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "Dependency of the robson cli"
 license = "MIT"
