@@ -35,8 +35,6 @@ pub struct Interpreter<'a> {
   operations: [[fn(&mut Interpreter, (TypedByte, TypedByte)); 3]; 5],
   convertion_array:
     [fn(TypedByte, &mut Interpreter) -> Result<TypedByte, IError>; 4],
-  #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
-  used_input: i64,
 }
 #[inline(always)]
 fn not_convert(
@@ -509,6 +507,7 @@ fn terminal_commands(
       interpreter.stack.pop();
       interpreter.infra.move_cursor(x, y)?;
     }
+    // FONT COLOR
     5 => {
       let color = interpreter
         .stack
@@ -607,8 +606,6 @@ impl<'a> Interpreter<'a> {
           |int, (v1, v2)| int.stack.push(f32_mod(*v1, *v2).into()),
         ],
       ],
-      #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
-      used_input: -1,
     })
   }
   pub fn debug(&mut self, new: bool) {
