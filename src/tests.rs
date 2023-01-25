@@ -29,8 +29,8 @@ impl CompilerInfra for TestInfra {
 }
 
 impl Infra for TestInfra {
-  fn print(&mut self, to_print: String) {
-    self.stdout.push_str(&to_print);
+  fn print(&mut self, to_print: &[u8]) {
+    self.stdout.push_str(&String::from_utf8_lossy(&to_print));
   }
   fn println(&mut self, to_print: String) {
     self.stdout.push_str(&format!("{}\n", to_print))
@@ -89,6 +89,12 @@ impl Infra for TestInfra {
   fn use_color(
     &mut self,
     _: u32,
+  ) -> Result<(), crate::data_struct::IError> {
+    Ok(())
+  }
+  fn use_background(
+    &mut self,
+    _color: u32,
   ) -> Result<(), crate::data_struct::IError> {
     Ok(())
   }

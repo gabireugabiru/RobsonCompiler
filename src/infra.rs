@@ -7,7 +7,9 @@ use crossterm::{
   cursor,
   event::{poll, read, Event, KeyCode},
   queue,
-  style::{Color, ResetColor, SetForegroundColor},
+  style::{
+    Color, ResetColor, SetBackgroundColor, SetForegroundColor,
+  },
   terminal::{disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
 
@@ -27,8 +29,8 @@ impl<'a> RunInfra<'a> {
 }
 impl<'a> Infra for RunInfra<'a> {
   #[inline(always)]
-  fn print(&mut self, to_print: String) {
-    write!(self.stdout, "{to_print}").unwrap();
+  fn print(&mut self, to_print: &[u8]) {
+    self.stdout.write(&to_print).unwrap();
   }
   fn println(&mut self, to_print: String) {
     println!("{to_print}");
@@ -63,7 +65,21 @@ impl<'a> Infra for RunInfra<'a> {
       match read()? {
         Event::Key(key) => {
           code = match &key.code {
-            KeyCode::Char(a) => *a as u32,
+            KeyCode::Char(char) => {
+              let mut bytes = [0, 0, 0, 0];
+              char.encode_utf8(&mut bytes);
+
+              let mut zeroes = 0;
+
+              for i in bytes {
+                if i == 0 {
+                  zeroes += 1;
+                }
+              }
+
+              let a = u32::from_be_bytes(bytes) >> 8 * zeroes;
+              a
+            }
             KeyCode::Esc => 10000,
             KeyCode::BackTab => 10001,
             KeyCode::Backspace => 10002,
@@ -108,6 +124,17 @@ impl<'a> Infra for RunInfra<'a> {
       queue!(self.stdout, ResetColor)?;
     }
 
+    Ok(())
+  }
+  fn use_background(&mut self, color: u32) -> Result<(), IError> {
+    if color < 256 {
+      queue!(
+        self.stdout,
+        SetBackgroundColor(Color::AnsiValue(color as u8))
+      )?;
+    } else {
+      queue!(self.stdout, ResetColor)?;
+    }
     Ok(())
   }
 }

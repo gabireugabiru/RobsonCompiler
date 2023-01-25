@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 pub fn u32_add(a: [u8; 4], b: [u8; 4]) -> u32 {
   u32::from_be_bytes(a) + u32::from_be_bytes(b)
 }
@@ -94,4 +96,14 @@ pub fn create_two_bits(bits: [bool; 2]) -> u8 {
 
 pub fn convert_two_bits(byte: u8) -> [bool; 2] {
   [((byte << 7) >> 7) != 0, (byte >> 1) != 0]
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn home_dir() -> Option<PathBuf> {
+  dirs_sys::home_dir()
+}
+
+#[cfg(target_os = "windows")]
+pub fn home_dir() -> Option<PathBuf> {
+  dirs_sys::known_folder_profile()
 }

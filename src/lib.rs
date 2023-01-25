@@ -12,6 +12,8 @@ pub mod interpreter;
 
 pub extern crate crossterm as terminal;
 
+pub const ROBSON_FOLDER: &str = ".robson_o_grande";
+pub const STDRB_FOLDER: &str = "stdrb";
 #[cfg(test)]
 mod tests;
 
@@ -19,7 +21,7 @@ mod utils;
 
 pub trait Infra {
   fn read_line(&mut self) -> Result<String, std::io::Error>;
-  fn print(&mut self, to_print: String);
+  fn print(&mut self, to_print: &[u8]);
   fn println(&mut self, to_print: String);
   fn flush(&mut self);
   fn enable_raw_mode(&self) -> Result<(), IError>;
@@ -31,6 +33,7 @@ pub trait Infra {
   fn show_cursor(&mut self) -> Result<(), IError>;
   fn move_cursor(&mut self, x: u32, y: u32) -> Result<(), IError>;
   fn use_color(&mut self, color: u32) -> Result<(), IError>;
+  fn use_background(&mut self, color: u32) -> Result<(), IError>;
 }
 
 pub trait CompilerInfra {

@@ -1,6 +1,6 @@
 [package]
 name = "robson_compiler"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "Dependency of the robson cli"
 license = "MIT"
@@ -9,3 +9,4 @@ homepage = "https://robson.fly.dev"
 [dependencies]
 rand = "0.8.5"
 crossterm = "0.23.2"
+dirs-sys = "0.3.6"

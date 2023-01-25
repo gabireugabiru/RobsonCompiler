@@ -76,6 +76,15 @@ impl From<f32> for TypedByte {
   }
 }
 
+impl From<[u8; 4]> for TypedByte {
+  fn from(value: [u8; 4]) -> Self {
+    Self {
+      value,
+      r#type: Type::Usigned,
+    }
+  }
+}
+
 impl Into<u32> for TypedByte {
   fn into(self) -> u32 {
     match self.r#type {

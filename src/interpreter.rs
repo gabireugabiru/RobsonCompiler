@@ -224,23 +224,50 @@ fn input(
   match kind {
     1 => {
       interpreter.validate_until(value);
-      interpreter.memory[value] = buff.trim().parse::<u32>()?.into()
+      match buff.trim().parse::<u32>() {
+        Ok(x) => interpreter.memory[value] = x.into(),
+        Err(_) => interpreter.stack.push(1.into()),
+      };
     }
     2 => {
       interpreter.validate_until(value);
-      interpreter.memory[value] = buff.trim().parse::<i32>()?.into()
+      match buff.trim().parse::<i32>() {
+        Ok(x) => interpreter.memory[value] = x.into(),
+        Err(_) => interpreter.stack.push(1.into()),
+      }
+      // interpreter.memory[value] = buff.trim().parse::<i32>()?.into()
     }
     3 => {
       interpreter.validate_until(value);
-      interpreter.memory[value] = buff.trim().parse::<f32>()?.into()
+      match buff.trim().parse::<f32>() {
+        Ok(x) => interpreter.memory[value] = x.into(),
+        Err(_) => interpreter.stack.push(1.into()),
+      }
+      // interpreter.memory[value] = buff.trim().parse::<f32>()?.into()
     }
     _ => {
       let address_to = value + limit + 2;
       interpreter.validate_until(address_to as usize);
       for (i, char) in buff.chars().enumerate() {
         if i < limit as usize {
-          let char = if char == '\n' { '\0' } else { char };
-          interpreter.memory[value] = (char as u32).into();
+          let char = if char == '\n' || char == '\0' {
+            interpreter.memory[value] = [0; 4].into();
+            continue;
+          } else {
+            char
+          };
+          let mut bytes: [u8; 4] = [0, 0, 0, 0];
+
+          char.encode_utf8(&mut bytes);
+          let mut zeroes = 0;
+          for a in bytes {
+            if a == 0 {
+              zeroes += 1;
+            }
+          }
+          interpreter.memory[value] =
+            u32::to_be_bytes(u32::from_be_bytes(bytes) >> 8 * zeroes)
+              .into();
           value += 1;
         } else {
           break;
@@ -269,12 +296,7 @@ fn print(
   if stack_byte.r#type != Type::Usigned {
     return Err(IError::message("Invalid number type for ASCII"));
   }
-  interpreter.infra.print(format!(
-    "{}",
-    (String::from_utf8_lossy(&[
-      u32::from_be_bytes(*stack_byte) as u8
-    ]))
-  ));
+  interpreter.infra.print(&*stack_byte);
 
   interpreter.stack.pop();
   Ok(())
@@ -291,13 +313,13 @@ fn printnumber(
   match r#type {
     Type::Floating => interpreter
       .infra
-      .print(format!("{}", f32::from_be_bytes(value))),
+      .print(f32::from_be_bytes(value).to_string().as_bytes()),
     Type::Signed => interpreter
       .infra
-      .print(format!("{}", i32::from_be_bytes(value))),
+      .print(i32::from_be_bytes(value).to_string().as_bytes()),
     Type::Usigned => interpreter
       .infra
-      .print(format!("{}", u32::from_be_bytes(value))),
+      .print(u32::from_be_bytes(value).to_string().as_bytes()),
   }
 
   interpreter.stack.pop();
@@ -313,7 +335,6 @@ fn jump(
   let value = interpreter
     .convert(param1.0, param1.1)?
     .force_u32(interpreter.current_command)?;
-  // println!("the jump ===== {value}");
   interpreter.index = (value * 15) as usize;
   Ok(())
 }
@@ -478,6 +499,7 @@ fn terminal_commands(
       let result = [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]];
       let value =
         interpreter.infra.poll(u64::from_be_bytes(result))?;
+
       interpreter.stack.push(value.into());
     }
     // SHOW/HIDE CURSOR
@@ -513,8 +535,17 @@ fn terminal_commands(
         .stack
         .top()?
         .force_u32(interpreter.current_command)?;
-
+      interpreter.stack.pop();
       interpreter.infra.use_color(color)?;
+    }
+    //BACKGROUND
+    6 => {
+      let color = interpreter
+        .stack
+        .top()?
+        .force_u32(interpreter.current_command)?;
+      interpreter.stack.pop();
+      interpreter.infra.use_background(color)?;
     }
     _ => return Err(IError::message("Invalid terminal command")),
   }

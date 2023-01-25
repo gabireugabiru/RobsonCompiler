@@ -6,7 +6,7 @@ use std::{
 use crate::{
   data_struct::{IError, TypedByte},
   utils::{self, create_kind_byte, create_two_bits},
-  CompilerInfra,
+  CompilerInfra, ROBSON_FOLDER, STDRB_FOLDER,
 };
 
 pub struct Compiler {
@@ -28,9 +28,28 @@ pub struct Compiler {
 }
 impl Compiler {
   pub fn new(
-    path: String,
+    mut path: String,
     infra: Box<dyn CompilerInfra>,
   ) -> Result<Self, IError> {
+    if path.contains("stdrb/") {
+      path = path.replace("stdrb/", "");
+
+      let home = utils::home_dir()
+        .ok_or_else(|| IError::message("Couldnt find Home Path"))?;
+      let mut new_path = home.join(ROBSON_FOLDER).join(STDRB_FOLDER);
+
+      for join in path.split("/") {
+        new_path = new_path.join(join);
+      }
+      path = new_path
+        .to_str()
+        .ok_or(IError::message(&format!(
+          "Failed to parse the path stdrb/{}",
+          path
+        )))?
+        .to_string();
+    }
+
     let file =
       std::fs::File::options().read(true).open(path.clone())?;
     let buff_reader = BufReader::new(&file);
@@ -312,14 +331,11 @@ impl Compiler {
           //if is an include compile the include to get the correct value of the aliases
           let splited: Vec<&str> = string.split(' ').collect();
           if splited.len() != 2 {
-            return Some(IError::message(IError::message(
-              "malformated robsons",
-            )));
+            return Some(IError::message("malformated robsons"));
           }
           let path = splited[1];
 
           // get offset from cache if possible
-          // println!("deez {}", command_number);
           let new_offset = match self
             .get_cached_robsons_size(path, command_number)
           {
@@ -364,11 +380,6 @@ impl Compiler {
     }
     res
   }
-
-  // pub fn get_convert_bits(&self, deez_nuts: String) -> [u8; 2] {
-  //   let splited: Vec<&str> = deez_nuts.split(' ').collect();
-  //   if splited.len() != 3 {}
-  // }
 
   fn verify_index_overflow(&self, pos: usize) -> bool {
     self.lines.len() <= pos
