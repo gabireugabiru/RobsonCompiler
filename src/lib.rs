@@ -9,6 +9,7 @@ pub mod compiler;
 pub mod data_struct;
 pub mod infra;
 pub mod interpreter;
+pub mod macros;
 
 pub extern crate crossterm as terminal;
 

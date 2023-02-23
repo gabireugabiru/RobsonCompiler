@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
+
+use crate::{data_struct::IError, macros::ierror};
 
 pub fn u32_add(a: [u8; 4], b: [u8; 4]) -> u32 {
   u32::from_be_bytes(a) + u32::from_be_bytes(b)
@@ -106,4 +108,109 @@ pub fn home_dir() -> Option<PathBuf> {
 #[cfg(target_os = "windows")]
 pub fn home_dir() -> Option<PathBuf> {
   dirs_sys::known_folder_profile()
+}
+
+pub fn convert_macro_robson(
+  expr: String,
+  values: &HashMap<String, String>,
+  current: usize,
+) -> Result<(String, bool, bool), IError> {
+  let splited = expr.split(" ").collect::<Vec<&str>>();
+
+  if splited.len() == 1 {
+    return Ok((
+      values
+        .get(&expr)
+        .ok_or(IError::message(format!("Can't find {}", expr)))?
+        .to_string(),
+      false,
+      false,
+    ));
+  }
+  let is_expr = true;
+  if splited.len() != 2 {
+    return ierror!("Failed to parse '{}'", expr);
+  }
+  if splited[1].contains("?ROBSON") {
+    return ierror!("Cant use an expression with x?ROBSONs");
+  }
+
+  let mut value = values
+    .get(splited[1])
+    .ok_or(IError::message("Malformated macro param"))?
+    .to_owned();
+  let mut last: Option<char> = None;
+  let mut has_next = false;
+  let chs = splited[0].chars().collect::<Vec<char>>();
+
+  for (i, char) in chs.iter().enumerate() {
+    if let Some(l) = last {
+      match l {
+        's' => {
+          let s = value.split(*char).collect::<Vec<&str>>();
+          value = s[current].to_string();
+        }
+        'i' => {
+          let s = value.split(*char).collect::<Vec<&str>>();
+          if s.len() != 3 {
+            return ierror!(
+              "Invalid value inside expression '{}'",
+              value
+            );
+          }
+
+          value = s[1].to_string();
+        }
+        'c' => {
+          let chars = value.chars().collect::<Vec<char>>();
+          value = String::new();
+          for i in chars {
+            let mut bytes: [u8; 4] = [0, 0, 0, 0];
+
+            i.encode_utf8(&mut bytes);
+            let mut zeroes = 0;
+            for a in bytes {
+              if a == 0 {
+                zeroes += 1;
+              }
+            }
+            let prefix = match char {
+              'c' => "comeu",
+              'f' => "fudeu",
+              _ => {
+                return ierror!(
+                  "Invalid complement for 'c' macro expression "
+                );
+              }
+            };
+            let number = u32::from_be_bytes(bytes) >> 8 * zeroes;
+            value.push_str(&format!("{prefix} {number}\n"));
+          }
+        }
+        _ => return ierror!("Invalid macro expression"),
+      }
+      last = None;
+    } else {
+      match char {
+        'r' => {
+          let chars = value.chars().collect::<Vec<char>>();
+          if current >= chars.len() {
+            return ierror!("Out of bounds macro expression");
+          }
+          if current + 1 < chars.len() {
+            has_next = true;
+          }
+          value = chars[current].to_string();
+        }
+        _ => {
+          if (i + 1) >= chs.len() {
+            return ierror!("Incomplete '{}' macro argument", char);
+          }
+          last = Some(*char);
+        }
+      }
+    }
+  }
+
+  return Ok((value, has_next, is_expr));
 }

@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use crate::{
-  compiler::Compiler, interpreter::Interpreter, CompilerInfra, Infra,
+  compiler::Compiler, interpreter::Interpreter,
+  utils::convert_macro_robson, CompilerInfra, Infra,
 };
 
 pub struct TestInfra {
@@ -227,4 +230,30 @@ fn multiplelambeu() {
     Interpreter::new(&compiled, TestInfra::new(String::new()))
       .unwrap();
   interpreter.run_buffer().unwrap()
+}
+
+#[test]
+fn convert_robson_macro() {
+  let mut hash = HashMap::new();
+
+  hash.insert("1$ROBSON".to_string(), "'comeu 32'".to_string());
+
+  let (a, a_, _) =
+    convert_macro_robson("1$ROBSON".to_string(), &hash, 0).unwrap();
+
+  assert_eq!(&a, "'comeu 32'");
+  assert_eq!(a_, false);
+
+  let (b, b_, _) =
+    convert_macro_robson("i'rcc 1$ROBSON".to_string(), &hash, 0)
+      .unwrap();
+  assert_eq!(&b, "comeu 99\n");
+  assert_eq!(b_, true);
+
+  let (c, c_, _) =
+    convert_macro_robson("i'rcc 1$ROBSON".to_string(), &hash, 1)
+      .unwrap();
+
+  assert_eq!(&c, "comeu 111\n");
+  assert_eq!(c_, true);
 }

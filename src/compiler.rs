@@ -4,7 +4,8 @@ use std::{
 };
 
 use crate::{
-  data_struct::{IError, TypedByte},
+  data_struct::{IError, Stack, Type, TypedByte},
+  macros::{compiler, ierror, replace_params, sanitize_param},
   utils::{self, create_kind_byte, create_two_bits},
   CompilerInfra, ROBSON_FOLDER, STDRB_FOLDER,
 };
@@ -13,7 +14,7 @@ pub struct Compiler {
   lines: Vec<String>,
   opcode_params: [u8; 17],
   names: HashMap<String, usize>,
-  files: HashMap<String, usize>,
+  files: HashMap<String, (usize, usize)>,
   pos: usize,
   debug: bool,
   current_command: usize,
@@ -25,6 +26,9 @@ pub struct Compiler {
   offset: usize,
   inner: usize,
   path: String,
+  macro_params: Option<HashMap<String, String>>,
+  macro_current: Stack<usize>,
+  macro_jump: Stack<usize>,
 }
 impl Compiler {
   pub fn new(
@@ -69,22 +73,63 @@ impl Compiler {
       current_command: 0,
       names: HashMap::new(),
       compiled_stack: Vec::new(),
+      macro_jump: Stack::default(),
+      macro_current: Stack::default(),
       opcode_params: [
         0, 3, 3, 1, 3, 1, 3, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0,
       ],
       pos: 0,
       path,
       inner: 0,
+      macro_params: None,
     })
   }
+
+  pub fn get_file_params(&self) -> Result<Vec<u32>, IError> {
+    if self.lines.len() >= 1 {
+      let mut is_error = false;
+      let splited: Vec<u32> = self.lines[0]
+        .split("$ROBSON")
+        .flat_map(|mut a| {
+          a = a.trim();
+          if a.is_empty() {
+            None
+          } else {
+            let b = (&a).parse::<u32>();
+            if b.is_err() {
+              is_error = true;
+            }
+            b.ok()
+          }
+        })
+        .collect();
+      if is_error {
+        return ierror!(
+          "Malformated param requirement at '{}' in '{}'",
+          self.lines[0],
+          self.path
+        );
+      }
+      Ok(splited)
+    } else {
+      ierror!("The file '{}' is empty", self.path)
+    }
+  }
+
   pub fn inner_in(&mut self, current: usize) {
     self.inner = current + 1;
   }
   pub fn set_files(
     &mut self,
-    new_compiled_files: HashMap<String, usize>,
+    new_compiled_files: HashMap<String, (usize, usize)>,
   ) {
     self.files = new_compiled_files;
+  }
+  pub fn set_macro_params(
+    &mut self,
+    params: HashMap<String, String>,
+  ) {
+    self.macro_params = Some(params);
   }
   pub fn compiled_stack(
     &mut self,
@@ -93,7 +138,7 @@ impl Compiler {
   ) -> Result<(), IError> {
     self.compiled_stack = current;
     if self.compiled_stack.contains(&new_path.to_owned()) {
-      return Err(IError::message("Creating infinite compilation"));
+      return ierror!("Creating infinite compilation");
     } else {
       self.compiled_stack.push(new_path.to_owned());
       Ok(())
@@ -106,17 +151,18 @@ impl Compiler {
     self.is_preload = new_preload;
   }
   pub fn compile(&mut self) -> Result<Vec<u8>, IError> {
-    if let Some(err) = self.start_command_alias() {
-      return Err(err);
+    self.start_command_alias()?;
+
+    if self.macro_params.is_some() {
+      self.pos += 1;
     }
     loop {
       if self.verify_index_overflow(self.pos) {
         break;
       }
-      let pre_string = self.lines[self.pos].to_owned();
-      let mut string = pre_string.as_str();
+      let mut string = self.lines[self.pos].clone();
 
-      string = Self::remove_comments(string).trim();
+      string = Self::remove_comments(&string).trim().to_owned();
 
       // skip aliases
       if string.ends_with(':') {
@@ -130,8 +176,25 @@ impl Compiler {
         continue;
       }
 
-      // implement multiple module instructions
-      if string.contains("robsons") {
+      replace_params!(self, string);
+
+      if string == "SEMPRE#ROBSON" {
+        if let Ok(top) = self.macro_jump.top() {
+          self.pos = top;
+          continue;
+        } else {
+          self.pos += 1;
+          continue;
+        }
+      }
+      if string == "PARE#ROBSON" {
+        self.macro_current.pop();
+        self.pos += 1;
+        continue;
+      }
+
+      //INCLUDE LOGIC
+      if string.starts_with("robsons") {
         let splited: Vec<&str> = string.split(' ').collect();
         if splited.len() != 2 {
           return Err(IError::message("Malformated robsons"));
@@ -156,22 +219,8 @@ impl Compiler {
             },
           );
         }
-        let mut compiler = match Compiler::new(
-          file_path.to_owned(),
-          self.infra.clone_self(),
-        ) {
-          Ok(a) => a,
-          Err(err) => {
-            if err.to_string().contains("os error 2") {
-              return Err(IError::message(format!(
-                "No such file '{}' (os error 2)",
-                file_path
-              )));
-            } else {
-              return Err(err);
-            }
-          }
-        };
+        let mut compiler = compiler!(file_path, self.infra);
+
         compiler.set_files(self.files.clone());
         compiler.set_preload(self.is_preload);
         compiler.inner_in(self.inner);
@@ -185,6 +234,74 @@ impl Compiler {
         self.last_opcode = 0;
         self.pos += 1;
         continue;
+      // MACRO LOGIC
+      } else if string.contains("robsons") {
+        let split: Vec<&str> = string.split("[").collect();
+        let split2: Vec<&str> = string.split("]").collect();
+
+        if split.len() == 2 && split2.len() == 2 {
+          let inside: Vec<&str> =
+            split2[0][1..].split("robsons").collect();
+
+          if inside.len() != 2 {
+            return Err(IError::message(format!(
+              "Malformated robsons macro at {string}"
+            )));
+          }
+          if inside[1].trim().is_empty() {
+            return Err(IError::message(format!(
+              "Malformated robsons macro at {string}"
+            )));
+          }
+
+          let mut compiler = compiler!(inside[1].trim(), self.infra);
+
+          let params_count = compiler.get_file_params()?;
+
+          let mut params: HashMap<String, String> = HashMap::new();
+          for i in params_count {
+            self.pos += 1;
+            if self.verify_index_overflow(self.pos) {
+              return ierror!(
+                "Missing params command of line {}",
+                self.pos - i as usize,
+              );
+            }
+
+            let mut string = self.lines[self.pos].to_owned();
+
+            replace_params!(self, string);
+
+            sanitize_param!(self, string);
+
+            if string.trim().is_empty() {
+              return ierror!(
+                "Missing params command of line {}",
+                self.pos - i as usize,
+              );
+            }
+            let update = params.insert(format!("{i}$ROBSON"), string);
+
+            if update.is_some() {
+              return ierror!("Duplicated param at in {}", self.path);
+            }
+          }
+
+          compiler.set_macro_params(params);
+          compiler.set_files(self.files.clone());
+          compiler.set_preload(self.is_preload);
+          compiler.inner_in(self.inner);
+          compiler.set_offset(self.current_command + self.offset);
+
+          let buffer = compiler.compile()?;
+          self.current_command += buffer.len() / 15;
+          for i in buffer {
+            self.buffer.push(i);
+          }
+          self.last_opcode = 0;
+          self.pos += 1;
+          continue;
+        }
       }
 
       // Implements the push abreviation
@@ -206,40 +323,40 @@ impl Compiler {
 
       for i in spaces {
         if i != "robson" {
-          return Err(IError::message(format!(
+          return ierror!(
             "Invalid token for opcode in line {}, '{}'",
             self.pos + 1,
             i
-          )));
+          );
         }
         opcode += 1;
       }
       if opcode as usize >= self.opcode_params.len() {
-        return Err(IError::message(format!(
-          "invalid opcode of line {}",
-          self.pos + 1
-        )));
+        return ierror!("Invalid opcode of line {}", self.pos + 1);
       }
       let param_count = self.opcode_params[opcode as usize];
       for i in 0..param_count {
         self.pos += 1;
         if self.verify_index_overflow(self.pos) {
-          return Err(IError::message(format!(
-            "missing params command of line {}",
+          return ierror!(
+            "Missing params command of line {}",
             self.pos - i as usize,
-          )));
+          );
         }
-        let string = self.lines[self.pos].to_owned();
-        if string.trim().len() < 2 {
-          return Err(IError::message(format!(
-            "missing params command of line {}",
+        let mut string = self.lines[self.pos].to_owned();
+
+        replace_params!(self, string);
+
+        if string.trim().is_empty() {
+          return ierror!(
+            "Missing params command of line {}",
             self.pos - i as usize,
-          )));
+          );
         }
         params[i as usize] = string;
       }
 
-      //update and run command
+      //update and compile command
       self.pos += 1;
 
       self.push_command(opcode, params)?;
@@ -249,36 +366,90 @@ impl Compiler {
     Ok(self.buffer.clone())
   }
 
+  pub fn get_cached_macro_size(
+    &mut self,
+    path: &str,
+    command_number: usize,
+    mut pos: usize,
+  ) -> Result<(usize, usize), IError> {
+    match self.files.get(path) {
+      Some(a) => Ok(*a),
+      None => {
+        let mut compiler = compiler!(path, self.infra);
+
+        self
+          .infra
+          .color_print(format!("Preloading macro {path}\n"), 14);
+
+        let params_count = compiler.get_file_params()?;
+        let mut params = HashMap::new();
+
+        pos += 1;
+
+        for i in &params_count {
+          if self.verify_index_overflow(pos) {
+            return ierror!("Missing param in line {}", pos);
+          }
+          let tmp = self.is_preload;
+          self.is_preload = true;
+          let mut line = self.lines[pos].clone();
+
+          sanitize_param!(self, line);
+
+          self.is_preload = tmp;
+
+          if line.is_empty() {
+            return ierror!("Missing param in line {}", pos);
+          }
+
+          params.insert(format!("{i}$ROBSON"), line);
+          pos += 1;
+        }
+        compiler.set_offset(command_number);
+        compiler.set_preload(true);
+        compiler.inner_in(self.inner);
+        compiler.set_files(self.files.clone());
+        compiler.set_macro_params(params);
+
+        if let Err(err) = compiler
+          .compiled_stack(self.compiled_stack.clone(), &self.path)
+        {
+          return Err(err);
+        }
+
+        match compiler.compile() {
+          Ok(_) => {
+            // inherit the compiled files
+            self.files = compiler.files.clone();
+            self.files.insert(
+              path.to_owned(),
+              (compiler.current_command, params_count.len()),
+            );
+            Ok((compiler.current_command, params_count.len()))
+          }
+          Err(err) => return Err(err),
+        }
+      }
+    }
+  }
+
   pub fn get_cached_robsons_size(
     &mut self,
     path: &str,
     command_number: usize,
-  ) -> Result<usize, IError> {
+  ) -> Result<(usize, usize), IError> {
     match self.files.get(path) {
       Some(a) => Ok(*a),
       None => {
         // compile file and cache it
-        let mut compiler = match Compiler::new(
-          path.to_owned(),
-          self.infra.clone_self(),
-        ) {
-          Ok(a) => a,
-          Err(err) => {
-            if err.to_string().contains("os error 2") {
-              return Err(IError::message(format!(
-                "No such file '{}' (os error 2)",
-                path
-              )));
-            } else {
-              return Err(err);
-            }
-          }
-        };
+        let mut compiler = compiler!(path, self.infra);
+
         self.infra.color_print(format!("Preloading {path}\n"), 14);
         compiler.set_offset(command_number);
         compiler.set_preload(true);
         compiler.inner_in(self.inner);
         compiler.set_files(self.files.clone());
+
         if let Err(err) = compiler
           .compiled_stack(self.compiled_stack.clone(), &self.path)
         {
@@ -291,8 +462,8 @@ impl Compiler {
             self.files = compiler.files.clone();
             self
               .files
-              .insert(path.to_owned(), compiler.current_command);
-            Ok(compiler.current_command)
+              .insert(path.to_owned(), (compiler.current_command, 0));
+            Ok((compiler.current_command, 0))
           }
           Err(err) => return Err(err),
         }
@@ -300,29 +471,56 @@ impl Compiler {
     }
   }
 
-  pub fn start_command_alias(&mut self) -> Option<IError> {
+  pub fn start_command_alias(&mut self) -> Result<(), IError> {
     struct LastCommand {
       value: u8,
       pos: usize,
     }
     let mut command_number = 0;
     let mut last_command = LastCommand { pos: 0, value: 0 };
-    for (pos, i) in self.lines.clone().iter().enumerate() {
-      let string = Self::remove_comments(i).trim().to_owned();
+    if self.macro_params.is_some() {
+      self.pos += 1;
+    }
+
+    loop {
+      if self.verify_index_overflow(self.pos) {
+        break;
+      }
+
+      let i = &self.lines[self.pos];
+
+      let mut string = Self::remove_comments(i).trim().to_owned();
+
       if string.is_empty() {
+        self.pos += 1;
         continue;
       }
+
+      replace_params!(self, string);
+
+      if string == "SEMPRE#ROBSON" {
+        if let Ok(top) = self.macro_jump.top() {
+          self.pos = top;
+          continue;
+        } else {
+          self.pos += 1;
+          continue;
+        }
+      }
+      if string == "PARE#ROBSON" {
+        self.macro_current.pop();
+        self.pos += 1;
+        continue;
+      }
+
       //add alias if it is an alias
       if string.ends_with(':') {
         let value = string.trim().replace(':', "");
         if self.names.get(&value).is_some() {
-          return Some(IError::message(format!(
-            "duplicated alias: {}",
-            value
-          )));
+          return ierror!("Duplicated alias: {}", value);
         }
         if self.debug {
-          self.infra.println(format!("{}: {}", value, pos + 1));
+          self.infra.println(format!("{}: {}", value, self.pos + 1));
         }
         self.names.insert(value, command_number + self.offset);
       } else {
@@ -331,19 +529,53 @@ impl Compiler {
           //if is an include compile the include to get the correct value of the aliases
           let splited: Vec<&str> = string.split(' ').collect();
           if splited.len() != 2 {
-            return Some(IError::message("malformated robsons"));
+            return ierror!("Malformated robsons");
           }
           let path = splited[1];
 
           // get offset from cache if possible
-          let new_offset = match self
+          let (new_offset, _) = match self
             .get_cached_robsons_size(path, command_number)
           {
             Ok(a) => a,
-            Err(err) => return Some(err),
+            Err(err) => return Err(err),
           };
 
           command_number += new_offset;
+        } else if string.contains("robsons") {
+          let split: Vec<&str> = string.split("[").collect();
+          let split2: Vec<&str> = string.split("]").collect();
+          if split2.len() == 2 && split.len() == 2 {
+            let inside: Vec<&str> =
+              split2[0][1..].split("robsons").collect();
+
+            if inside.len() != 2 {
+              return ierror!(
+                "Malformated robsons macro at {}",
+                string
+              );
+            }
+            if inside[1].trim().is_empty() {
+              return ierror!(
+                "Malformated robsons macro at {}",
+                string
+              );
+            }
+
+            let (new_offset, params_count) = match self
+              .get_cached_macro_size(
+                inside[1].trim(),
+                command_number,
+                self.pos,
+              ) {
+              Ok(a) => a,
+              Err(err) => return Err(err),
+            };
+            last_command.value = 0;
+            last_command.pos = self.pos;
+            self.pos += params_count;
+            command_number += new_offset
+          }
         } else if string.starts_with("robson") {
           // if is a command just add it
           command_number += 1;
@@ -352,24 +584,28 @@ impl Compiler {
 
           for i in spaces {
             if i != "robson" {
-              return Some(IError::message(format!(
+              return ierror!(
                 "invalid token for opcode in line {}, '{}'",
-                pos + 1,
+                self.pos + 1,
                 i
-              )));
+              );
             }
             opcode += 1;
           }
           last_command.value = opcode;
-          last_command.pos = pos;
+          last_command.pos = self.pos;
         } else if last_command.value == 3
-          && last_command.pos + 1 != pos
+          && last_command.pos + 1 != self.pos
         {
           command_number += 1;
         }
       }
+      self.pos += 1;
     }
-    None
+    self.macro_current = Stack::default();
+    self.macro_jump = Stack::default();
+    self.pos = 0;
+    Ok(())
   }
   pub fn remove_comments(string: &str) -> &str {
     let mut res = string;
@@ -384,6 +620,7 @@ impl Compiler {
   fn verify_index_overflow(&self, pos: usize) -> bool {
     self.lines.len() <= pos
   }
+
   pub fn push_command(
     &mut self,
     opcode: u8,
@@ -438,20 +675,33 @@ impl Compiler {
     let splited: Vec<&str> = parameter.split(' ').collect();
 
     if splited.len() < 2 {
-      return Err(IError::message(format!(
-        "Malformated param at line {}",
-        self.pos
-      )));
+      return ierror!(
+        "Malformated param at line {}\n'{}' - {}",
+        self.pos,
+        self.lines[self.pos],
+        self.path
+      );
     }
+
+    if splited.len() > 3 {
+      return ierror!(
+        "Malformated comeu in line {}\n'{}' - {}",
+        self.pos,
+        parameter,
+        self.path
+      );
+    }
+
     let mut convert = false;
     if splited.len() == 3 {
       if splited[2] == "robson" {
         convert = true;
       } else {
-        return Err(IError::message(format!(
-          "Malformated param at line {}, expected 'robson'",
-          self.pos
-        )));
+        return ierror!(
+          "Malformated param at line {}, expected 'robson'\n{}",
+          self.pos,
+          self.lines[self.pos]
+        );
       }
     }
 
@@ -487,15 +737,19 @@ impl Compiler {
       "lambeu" => {
         let value = splited[1].trim();
         if value.chars().collect::<Vec<char>>()[0] != ':' {
-          return Err(IError::message(format!(
-            "malformated name in command at {}, '{}'",
-            self.pos, value
-          )));
+          return ierror!(
+            "Malformated name in command at {}, '{}'",
+            self.pos,
+            value
+          );
         }
         let value = value.replace(':', "");
 
         let a = self.names.get(&value).ok_or_else(|| {
-          IError::message(format!("cant find {}", value))
+          IError::message(format!(
+            "Cant find '{}' in {}",
+            value, self.path
+          ))
         })?;
         Ok(((*a as u32).into(), 0, 0, convert))
       }

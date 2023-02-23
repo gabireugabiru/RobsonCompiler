@@ -5,9 +5,11 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
+use crate::macros::ierror;
+
 #[derive(Debug)]
 pub struct IError {
-  error: String,
+  pub error: String,
 }
 impl IError {
   pub fn message<T>(error: T) -> Self
@@ -191,37 +193,35 @@ impl TypedByte {
 }
 
 #[derive(Default, Debug)]
-pub struct Stack {
-  pub vec: Vec<TypedByte>,
+pub struct Stack<T> {
+  pub vec: Vec<T>,
 }
-impl Display for Stack {
+impl<T: std::fmt::Debug> Display for Stack<T> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let mut string = String::new();
     for i in &self.vec {
-      string.push_str(&format!("{i}, "));
+      string.push_str(&format!("{i:?}, "));
     }
     write!(f, "[{}]", string)
   }
 }
-impl Deref for Stack {
-  type Target = Vec<TypedByte>;
+impl<T> Deref for Stack<T> {
+  type Target = Vec<T>;
   fn deref(&self) -> &Self::Target {
     &self.vec
   }
 }
-impl DerefMut for Stack {
+impl<T> DerefMut for Stack<T> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.vec
   }
 }
-impl Stack {
-  pub fn top(&self) -> Result<TypedByte, IError> {
+impl<T: Copy> Stack<T> {
+  pub fn top(&self) -> Result<T, IError> {
     if !self.vec.is_empty() {
       return Ok(self.vec[self.len() - 1]);
     }
-    Err(IError::message(
-      "Trying to access the stack while it is empty",
-    ))
+    ierror!("Trying to access the stack while it is empty",)
   }
 }
 

@@ -7,6 +7,7 @@ use rand::Rng;
 
 use crate::{
   data_struct::{IError, Stack, Type, TypedByte},
+  macros::ierror,
   utils::{
     convert_kind_byte, convert_two_bits, f32_mod, i32_mod, u32_mod,
   },
@@ -21,7 +22,7 @@ use super::utils::{
 pub struct Interpreter<'a> {
   pub memory: Vec<TypedByte>,
   pub debug: bool,
-  pub stack: Stack,
+  pub stack: Stack<TypedByte>,
   time: Option<Instant>,
   duration: Option<Duration>,
   infra: Box<dyn Infra>,
@@ -49,9 +50,9 @@ fn convert_chupou(
   byte: TypedByte,
   interpreter: &mut Interpreter,
 ) -> Result<TypedByte, IError> {
-  let value = u32::from_be_bytes(*byte);
+  let value = byte.force_u32(interpreter.current_command)?;
   if value != 0 {
-    return Err(IError::message("chupou is not 0"));
+    return ierror!("chupou is not 0");
   }
   let top = interpreter.stack.top()?;
   interpreter.stack.pop();
@@ -74,13 +75,19 @@ fn convert_penetrou(
   byte: TypedByte,
   interpreter: &mut Interpreter,
 ) -> Result<TypedByte, IError> {
-  let address = byte.force_u32(interpreter.current_command)? as usize;
+  let value = byte.force_u32(interpreter.current_command)? as usize;
+  if value != 0 {
+    return ierror!("Penetrou is not 0");
+  }
+  let address = interpreter
+    .stack
+    .top()?
+    .force_u32(interpreter.current_command)? as usize;
+  interpreter.stack.pop();
+
   interpreter.validate_until(address);
-  let address2 = interpreter.memory[address]
-    .force_u32(interpreter.current_command)?
-    as usize;
-  interpreter.validate_until(address2);
-  Ok(interpreter.memory[address2])
+
+  Ok(interpreter.memory[address])
 }
 fn do_no_shit(
   _: &mut Interpreter,
@@ -114,10 +121,10 @@ fn operations(
     return Ok(());
   }
   if value.r#type != value2.r#type {
-    return Err(IError::message(format!(
+    return ierror!(
       "Adding with incompatible types at command {}",
       interpreter.current_command
-    )));
+    );
   }
   interpreter.operations[kind as usize][value.r#type as usize](
     interpreter,
@@ -226,14 +233,14 @@ fn input(
       interpreter.validate_until(value);
       match buff.trim().parse::<u32>() {
         Ok(x) => interpreter.memory[value] = x.into(),
-        Err(_) => interpreter.stack.push(1.into()),
+        Err(_) => interpreter.stack.push(1u32.into()),
       };
     }
     2 => {
       interpreter.validate_until(value);
       match buff.trim().parse::<i32>() {
         Ok(x) => interpreter.memory[value] = x.into(),
-        Err(_) => interpreter.stack.push(1.into()),
+        Err(_) => interpreter.stack.push(1u32.into()),
       }
       // interpreter.memory[value] = buff.trim().parse::<i32>()?.into()
     }
@@ -241,7 +248,7 @@ fn input(
       interpreter.validate_until(value);
       match buff.trim().parse::<f32>() {
         Ok(x) => interpreter.memory[value] = x.into(),
-        Err(_) => interpreter.stack.push(1.into()),
+        Err(_) => interpreter.stack.push(1u32.into()),
       }
       // interpreter.memory[value] = buff.trim().parse::<f32>()?.into()
     }
@@ -644,6 +651,9 @@ impl<'a> Interpreter<'a> {
   }
 
   pub fn run_buffer(&mut self) -> Result<(), IError> {
+    if self.buffer.is_empty() {
+      return ierror!("Empty buffer");
+    }
     loop {
       let opcode = self.buffer[self.index];
       let kind_byte = self.buffer[self.index + 1];
