@@ -6,7 +6,10 @@ description = "Dependency of the robson cli"
 license = "MIT"
 repository = "https://github.com/gabireugabiru/RobsonCompiler"
 homepage = "https://robson.fly.dev"
+
 [dependencies]
+getrandom = { version = "*", features = ["js"] }
 rand = "0.8.5"
-crossterm = "0.23.2"
-dirs-sys = "0.3.6"
+
+[profile.release]
+panic = "abort"

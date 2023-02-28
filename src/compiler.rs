@@ -1,7 +1,4 @@
-use std::{
-  collections::HashMap,
-  io::{BufRead, BufReader},
-};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use crate::{
   data_struct::{IError, Stack, Type, TypedByte},
@@ -38,29 +35,28 @@ impl Compiler {
     if path.contains("stdrb/") {
       path = path.replace("stdrb/", "");
 
-      let home = utils::home_dir()
+      let home = infra
+        .home_dir()
         .ok_or_else(|| IError::message("Couldnt find Home Path"))?;
-      let mut new_path = home.join(ROBSON_FOLDER).join(STDRB_FOLDER);
+      let mut new_path = PathBuf::from_str(&home)
+        .ok()
+        .ok_or(IError::message("Failed to parse home path"))?;
 
-      for join in path.split("/") {
+      new_path = new_path.join(ROBSON_FOLDER).join(STDRB_FOLDER);
+
+      for join in path.split('/') {
         new_path = new_path.join(join);
       }
       path = new_path
         .to_str()
-        .ok_or(IError::message(&format!(
+        .ok_or(IError::message(format!(
           "Failed to parse the path stdrb/{}",
           path
         )))?
         .to_string();
     }
-
-    let file =
-      std::fs::File::options().read(true).open(path.clone())?;
-    let buff_reader = BufReader::new(&file);
-    let lines = buff_reader
-      .lines()
-      .flat_map(|a| a.ok())
-      .collect::<Vec<String>>();
+    println!("{path}");
+    let lines = infra.lines(&path)?;
     Ok(Self {
       buffer: Vec::new(),
       debug: false,
@@ -86,7 +82,7 @@ impl Compiler {
   }
 
   pub fn get_file_params(&self) -> Result<Vec<u32>, IError> {
-    if self.lines.len() >= 1 {
+    if !self.lines.is_empty() {
       let mut is_error = false;
       let splited: Vec<u32> = self.lines[0]
         .split("$ROBSON")
@@ -95,7 +91,7 @@ impl Compiler {
           if a.is_empty() {
             None
           } else {
-            let b = (&a).parse::<u32>();
+            let b = a.parse::<u32>();
             if b.is_err() {
               is_error = true;
             }
@@ -138,7 +134,7 @@ impl Compiler {
   ) -> Result<(), IError> {
     self.compiled_stack = current;
     if self.compiled_stack.contains(&new_path.to_owned()) {
-      return ierror!("Creating infinite compilation");
+      ierror!("Creating infinite compilation")
     } else {
       self.compiled_stack.push(new_path.to_owned());
       Ok(())
@@ -179,7 +175,7 @@ impl Compiler {
       replace_params!(self, string);
 
       if string == "SEMPRE#ROBSON" {
-        if let Ok(top) = self.macro_jump.top() {
+        if let Some(top) = self.macro_jump.top() {
           self.pos = top;
           continue;
         } else {
@@ -236,8 +232,8 @@ impl Compiler {
         continue;
       // MACRO LOGIC
       } else if string.contains("robsons") {
-        let split: Vec<&str> = string.split("[").collect();
-        let split2: Vec<&str> = string.split("]").collect();
+        let split: Vec<&str> = string.split('[').collect();
+        let split2: Vec<&str> = string.split(']').collect();
 
         if split.len() == 2 && split2.len() == 2 {
           let inside: Vec<&str> =
@@ -411,11 +407,8 @@ impl Compiler {
         compiler.set_files(self.files.clone());
         compiler.set_macro_params(params);
 
-        if let Err(err) = compiler
-          .compiled_stack(self.compiled_stack.clone(), &self.path)
-        {
-          return Err(err);
-        }
+        compiler
+          .compiled_stack(self.compiled_stack.clone(), &self.path)?;
 
         match compiler.compile() {
           Ok(_) => {
@@ -427,7 +420,7 @@ impl Compiler {
             );
             Ok((compiler.current_command, params_count.len()))
           }
-          Err(err) => return Err(err),
+          Err(err) => Err(err),
         }
       }
     }
@@ -450,11 +443,8 @@ impl Compiler {
         compiler.inner_in(self.inner);
         compiler.set_files(self.files.clone());
 
-        if let Err(err) = compiler
-          .compiled_stack(self.compiled_stack.clone(), &self.path)
-        {
-          return Err(err);
-        }
+        compiler
+          .compiled_stack(self.compiled_stack.clone(), &self.path)?;
 
         match compiler.compile() {
           Ok(_) => {
@@ -465,7 +455,7 @@ impl Compiler {
               .insert(path.to_owned(), (compiler.current_command, 0));
             Ok((compiler.current_command, 0))
           }
-          Err(err) => return Err(err),
+          Err(err) => Err(err),
         }
       }
     }
@@ -499,7 +489,7 @@ impl Compiler {
       replace_params!(self, string);
 
       if string == "SEMPRE#ROBSON" {
-        if let Ok(top) = self.macro_jump.top() {
+        if let Some(top) = self.macro_jump.top() {
           self.pos = top;
           continue;
         } else {
@@ -543,8 +533,8 @@ impl Compiler {
 
           command_number += new_offset;
         } else if string.contains("robsons") {
-          let split: Vec<&str> = string.split("[").collect();
-          let split2: Vec<&str> = string.split("]").collect();
+          let split: Vec<&str> = string.split('[').collect();
+          let split2: Vec<&str> = string.split(']').collect();
           if split2.len() == 2 && split.len() == 2 {
             let inside: Vec<&str> =
               split2[0][1..].split("robsons").collect();
@@ -757,12 +747,10 @@ impl Compiler {
         let value = splited[1].trim().parse::<u32>()?;
         Ok((value.into(), 3, 0, convert))
       }
-      token => {
-        return Err(IError::message(format!(
-          "Unexpect token for param at line {}, '{}'",
-          self.pos, token
-        )))
-      }
+      token => Err(IError::message(format!(
+        "Unexpect token for param at line {}, '{}'",
+        self.pos, token
+      ))),
     }
   }
 }

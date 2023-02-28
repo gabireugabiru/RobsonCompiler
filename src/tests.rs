@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::{
+  collections::HashMap,
+  io::{BufRead, BufReader},
+};
 
 use crate::{
-  compiler::Compiler, interpreter::Interpreter,
+  compiler::Compiler, data_struct::IError, interpreter::Interpreter,
   utils::convert_macro_robson, CompilerInfra, Infra,
 };
 
@@ -10,11 +13,11 @@ pub struct TestInfra {
   stdout: String,
 }
 impl TestInfra {
-  fn new(stdin: String) -> Box<Self> {
-    Box::new(Self {
+  fn new(stdin: String) -> Self {
+    Self {
       stdin,
       stdout: String::new(),
-    })
+    }
   }
 }
 impl CompilerInfra for TestInfra {
@@ -29,6 +32,19 @@ impl CompilerInfra for TestInfra {
     })
   }
   fn color_print(&mut self, _: String, _: u64) {}
+
+  fn home_dir(&self) -> Option<String> {
+    Some(String::from("/"))
+  }
+  fn lines(&self, path: &str) -> Result<Vec<String>, IError> {
+    let file = std::fs::File::options().read(true).open(path)?;
+    let buff_reader = BufReader::new(&file);
+    let lines = buff_reader
+      .lines()
+      .flat_map(|a| a.ok())
+      .collect::<Vec<String>>();
+    Ok(lines)
+  }
 }
 
 impl Infra for TestInfra {
@@ -107,28 +123,28 @@ impl Infra for TestInfra {
 fn push_and_print() {
   let mut compiler = Compiler::new(
     "tests/push.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
   let compiled = compiler.compile().unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 #[test]
 fn jump() {
   let mut compiler = Compiler::new(
     "tests/jump.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
   let compiled = compiler.compile().unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 
@@ -136,13 +152,14 @@ fn jump() {
 fn memory() {
   let mut compiler = Compiler::new(
     "tests/memory.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
+
   let compiled = compiler.compile().unwrap();
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 
@@ -150,43 +167,42 @@ fn memory() {
 fn if_() {
   let mut compiler = Compiler::new(
     "tests/if.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
   let compiled = compiler.compile().unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 #[test]
 fn input() {
   let mut compiler = Compiler::new(
     "tests/input.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
   let compiled = compiler.compile().unwrap();
-  let mut interpreter = Interpreter::new(
-    &compiled,
-    TestInfra::new("12\ntesteteste123".to_owned()),
-  )
-  .unwrap();
+  let mut interpreter =
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 #[test]
 fn operations() {
   let mut compiler = Compiler::new(
     "tests/operations.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
   let compiled = compiler.compile().unwrap();
 
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
+
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 
@@ -194,13 +210,14 @@ fn operations() {
 fn types() {
   let mut compiler = Compiler::new(
     "tests/types.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
+
   let compiled = compiler.compile().unwrap();
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 
@@ -208,13 +225,14 @@ fn types() {
 fn include() {
   let mut compiler = Compiler::new(
     "tests/include.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
   let compiled = compiler.compile().unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
+
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 
@@ -222,13 +240,14 @@ fn include() {
 fn multiplelambeu() {
   let mut compiler = Compiler::new(
     "tests/multiplelambeu.robson".to_owned(),
-    TestInfra::new("".to_owned()),
+    Box::new(TestInfra::new("".to_owned())),
   )
   .unwrap();
   let compiled = compiler.compile().unwrap();
+  let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
+
   let mut interpreter =
-    Interpreter::new(&compiled, TestInfra::new(String::new()))
-      .unwrap();
+    Interpreter::new(&compiled, &mut infra).unwrap();
   interpreter.run_buffer().unwrap()
 }
 

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::collections::HashMap;
 
 use crate::{data_struct::IError, macros::ierror};
 
@@ -7,7 +7,7 @@ pub fn u32_add(a: [u8; 4], b: [u8; 4]) -> u32 {
 }
 
 pub fn f32_add(a: [u8; 4], b: [u8; 4]) -> f32 {
-  (f32::from_be_bytes(a) + f32::from_be_bytes(b)) as f32
+  f32::from_be_bytes(a) + f32::from_be_bytes(b)
 }
 
 pub fn i32_add(a: [u8; 4], b: [u8; 4]) -> i32 {
@@ -100,22 +100,12 @@ pub fn convert_two_bits(byte: u8) -> [bool; 2] {
   [((byte << 7) >> 7) != 0, (byte >> 1) != 0]
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn home_dir() -> Option<PathBuf> {
-  dirs_sys::home_dir()
-}
-
-#[cfg(target_os = "windows")]
-pub fn home_dir() -> Option<PathBuf> {
-  dirs_sys::known_folder_profile()
-}
-
 pub fn convert_macro_robson(
   expr: String,
   values: &HashMap<String, String>,
   current: usize,
 ) -> Result<(String, bool, bool), IError> {
-  let splited = expr.split(" ").collect::<Vec<&str>>();
+  let splited = expr.split(' ').collect::<Vec<&str>>();
 
   if splited.len() == 1 {
     return Ok((
@@ -183,7 +173,7 @@ pub fn convert_macro_robson(
                 );
               }
             };
-            let number = u32::from_be_bytes(bytes) >> 8 * zeroes;
+            let number = u32::from_be_bytes(bytes) >> (8 * zeroes);
             value.push_str(&format!("{prefix} {number}\n"));
           }
         }
@@ -212,5 +202,5 @@ pub fn convert_macro_robson(
     }
   }
 
-  return Ok((value, has_next, is_expr));
+  Ok((value, has_next, is_expr))
 }

@@ -17,14 +17,14 @@ macro_rules! compiler {
 }
 
 macro_rules! ierror {
-    ($arg:literal) => {
-        Err(crate::data_struct::IError::message($arg))
-      };
-    ($($arg:tt)*) => {
-        Err(crate::data_struct::IError::message(
-        format!($($arg)*)
-        ))
-    };
+  ($arg:literal) => {
+    Err(crate::data_struct::IError::message(&$arg))
+  };
+($($arg:tt)*) => {
+    Err(crate::data_struct::IError::message(
+    format!($($arg)*)
+    ))
+};
 }
 
 macro_rules! replace_params {
@@ -33,11 +33,11 @@ macro_rules! replace_params {
       if let Some(macro_params) = &mut $self.macro_params {
         let mut should_pop = false;
         let current = match $self.macro_current.top() {
-          Ok(a) => {
+          Some(a) => {
             should_pop = true;
             a
           }
-          Err(_) => 0,
+          None => 0,
         };
         let (str, has_next, is_expr) =
           crate::utils::convert_macro_robson(
@@ -66,14 +66,14 @@ macro_rules! replace_params {
 
           macro_params.insert(b[1].replace("$", "?"), str);
           match $self.macro_jump.top() {
-            Ok(x) => {
+            Some(x) => {
               if x != $self.pos {
                 $self.macro_jump.push($self.pos);
               } else if !has_next {
                 $self.macro_jump.pop();
               }
             }
-            Err(_) => {
+            None => {
               $self.macro_jump.push($self.pos);
             }
           }
@@ -111,7 +111,41 @@ macro_rules! sanitize_param {
   };
 }
 
+macro_rules! force_u32 {
+  ($self:ident, $expr:expr) => {
+    $expr.force_u32().ok_or_else(|| {
+      crate::data_struct::IError::message(&format!(
+        "Invalid number type at the command {}",
+        $self.current_command
+      ))
+    })
+  };
+}
+
+macro_rules! top {
+  ($expr:expr) => {
+    $expr.top().ok_or_else(|| {
+      crate::data_struct::IError::message(
+        "Trying to access the stack while it is empty",
+      )
+    })
+  };
+}
+
+macro_rules! convert {
+  ($self:ident, $ident:ident) => {
+    $self.convert($ident.0, $ident.1).ok_or_else(|| {
+      crate::data_struct::IError::message(&format!(
+        "Failed to convert expression of kind {} at the command '{}'",
+        $ident.1, $self.current_command
+      ))
+    })
+  };
+}
 pub(crate) use compiler;
+pub(crate) use convert;
+pub(crate) use force_u32;
 pub(crate) use ierror;
 pub(crate) use replace_params;
 pub(crate) use sanitize_param;
+pub(crate) use top;

@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used)]
+
 use data_struct::IError;
 
 use crate::{
@@ -7,18 +9,15 @@ use crate::{
 
 pub mod compiler;
 pub mod data_struct;
-pub mod infra;
 pub mod interpreter;
 pub mod macros;
-
-pub extern crate crossterm as terminal;
 
 pub const ROBSON_FOLDER: &str = ".robson_o_grande";
 pub const STDRB_FOLDER: &str = "stdrb";
 #[cfg(test)]
 mod tests;
 
-mod utils;
+pub mod utils;
 
 pub trait Infra {
   fn read_line(&mut self) -> Result<String, std::io::Error>;
@@ -41,6 +40,9 @@ pub trait CompilerInfra {
   fn clone_self(&mut self) -> Box<dyn CompilerInfra>;
   fn color_print(&mut self, to_print: String, color: u64);
   fn println(&mut self, to_print: String);
+
+  fn home_dir(&self) -> Option<String>;
+  fn lines(&self, path: &str) -> Result<Vec<String>, IError>;
 }
 
 pub fn print_file_buffer(buffer: Vec<u8>) {
