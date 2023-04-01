@@ -6,12 +6,12 @@ use std::{
 use rand::Rng;
 
 use crate::{
-  data_struct::{
-    IError, Instruction, InstructionParam, Stack, Type, TypedByte,
-  },
-  macros::{convert, force_u32, ierror, top},
+  data_struct::{IError, Instruction, Stack, Type, TypedByte},
+  macros::{convert, force_u32, someierror, top, try_err},
   utils::{
-    convert_kind_byte, convert_two_bits, f32_mod, i32_mod, u32_mod,
+    convert_kind_byte, convert_two_bits, f32_from_bytes, f32_mod,
+    f32_to_bytes, i32_from_bytes, i32_mod, i32_to_bytes,
+    u32_from_bytes, u32_mod, u32_to_bytes,
   },
   Infra,
 };
@@ -21,257 +21,265 @@ use super::utils::{
   i32_mul, i32_sub, u32_add, u32_div, u32_mul, u32_sub,
 };
 
-pub const OPERATIONS: [[fn(&mut Interpreter, (TypedByte, TypedByte));
+pub const OPERATIONS: [[fn(param1: &mut TypedByte, param2: [u8; 4]);
   3]; 5] = [
   [
-    |int, (v1, v2)| int.stack.push(u32_add(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(i32_add(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(f32_add(*v1, *v2).into()),
+    |v1, v2| v1.value = u32_to_bytes(u32_add(**v1, v2)),
+    |v1, v2| v1.value = i32_to_bytes(i32_add(**v1, v2)),
+    |v1, v2| v1.value = f32_to_bytes(f32_add(**v1, v2)),
   ],
   [
-    |int, (v1, v2)| {
-      int.stack.push({
-        if *v1 >= *v2 {
-          u32_sub(*v1, *v2).into()
+    |v1, v2| {
+      v1.value = u32_to_bytes({
+        if **v1 >= v2 {
+          u32_sub(**v1, v2)
         } else {
-          0u32.into()
+          0u32
         }
       })
     },
-    |int, (v1, v2)| int.stack.push(i32_sub(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(f32_sub(*v1, *v2).into()),
+    |v1, v2| v1.value = i32_to_bytes(i32_sub(**v1, v2)),
+    |v1, v2| v1.value = f32_to_bytes(f32_sub(**v1, v2)),
   ],
   [
-    |int, (v1, v2)| int.stack.push(u32_mul(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(i32_mul(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(f32_mul(*v1, *v2).into()),
+    |v1, v2| v1.value = u32_to_bytes(u32_mul(**v1, v2)),
+    |v1, v2| v1.value = i32_to_bytes(i32_mul(**v1, v2)),
+    |v1, v2| v1.value = f32_to_bytes(f32_mul(**v1, v2)),
   ],
   [
-    |int, (v1, v2)| int.stack.push(u32_div(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(i32_div(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(f32_div(*v1, *v2).into()),
+    |v1, v2| v1.value = u32_to_bytes(u32_div(**v1, v2)),
+    |v1, v2| v1.value = i32_to_bytes(i32_div(**v1, v2)),
+    |v1, v2| v1.value = f32_to_bytes(f32_div(**v1, v2)),
   ],
   [
-    |int, (v1, v2)| int.stack.push(u32_mod(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(i32_mod(*v1, *v2).into()),
-    |int, (v1, v2)| int.stack.push(f32_mod(*v1, *v2).into()),
+    |v1, v2| v1.value = u32_to_bytes(u32_mod(**v1, v2)),
+    |v1, v2| v1.value = i32_to_bytes(i32_mod(**v1, v2)),
+    |v1, v2| v1.value = f32_to_bytes(f32_mod(**v1, v2)),
   ],
 ];
 
-pub struct Interpreter<'a> {
-  pub memory: Vec<TypedByte>,
+pub struct Interpreter<'a, const A: usize> {
+  pub memory: [TypedByte; A],
   pub debug: bool,
-  pub stack: Stack<TypedByte>,
+  pub stack: Stack<65535>,
+  convertions: [fn(&mut TypedByte, &mut Interpreter<A>) -> bool; 4],
+  operations: [fn(&mut Interpreter<A>, &mut dyn Infra); 256],
   time: Option<Instant>,
   duration: Option<Duration>,
-  infra: &'a mut dyn Infra,
   index: usize,
-  current_command: usize,
+  instruction: Instruction,
   buffer: &'a [u8],
-  opcode_functions: [fn(
-    &mut Interpreter,
-    params: [(TypedByte, usize, bool); 3],
-  ) -> Result<(), IError>; 17],
-  convertion_array:
-    [fn(TypedByte, &mut Interpreter) -> Option<TypedByte>; 4],
+  err: Option<IError>,
 }
-#[inline(always)]
-fn not_convert(
-  byte: TypedByte,
-  _interpreter: &mut Interpreter,
-) -> Option<TypedByte> {
-  Some(byte)
+#[inline]
+fn not_convert<const A: usize>(
+  _: &mut TypedByte,
+  _interpreter: &mut Interpreter<A>,
+) -> bool {
+  true
 }
 
-#[inline(always)]
-fn convert_chupou(
-  _: TypedByte,
-  interpreter: &mut Interpreter,
-) -> Option<TypedByte> {
-  let top = interpreter.stack.top()?;
+#[inline]
+fn convert_chupou<'a, const A: usize>(
+  byte: &mut TypedByte,
+  interpreter: &mut Interpreter<A>,
+) -> bool {
+  *byte = interpreter.stack.top();
   interpreter.stack.pop();
-  Some(top)
+  true
 }
 
-#[inline(always)]
-fn conver_fudeu(
-  byte: TypedByte,
-  interpreter: &mut Interpreter,
-) -> Option<TypedByte> {
-  let address = byte.force_u32()? as usize;
-  interpreter.validate_until(address);
+#[inline]
+fn conver_fudeu<'a, const A: usize>(
+  byte: &mut TypedByte,
+  interpreter: &mut Interpreter<A>,
+) -> bool {
+  let address = byte.force_u32();
 
-  Some(interpreter.memory[address])
+  *byte = interpreter.memory[address as usize % A];
+  true
 }
 
-#[inline(always)]
-fn convert_penetrou(
-  _: TypedByte,
-  interpreter: &mut Interpreter,
-) -> Option<TypedByte> {
-  let address = interpreter.stack.top()?.force_u32()? as usize;
+#[inline]
+fn convert_penetrou<'a, const A: usize>(
+  byte: &mut TypedByte,
+  interpreter: &mut Interpreter<A>,
+) -> bool {
+  let a = interpreter.stack.top();
+  let address = a.force_u32();
   interpreter.stack.pop();
-
-  interpreter.validate_until(address);
-
-  Some(interpreter.memory[address])
+  *byte = interpreter.memory[address as usize % A];
+  true
 }
 
-fn do_no_shit(
-  _: &mut Interpreter,
-  _: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  ierror!("Operation is not operating, please suck my dick")
+fn dns<const A: usize>(int: &mut Interpreter<A>, _: &mut dyn Infra) {
+  int.err =
+    someierror!("Operation is not operating, please suck my dick");
+  return;
 }
 // OPCODE 1
-#[inline(always)]
-fn operations(
-  interpreter: &mut Interpreter,
-  [param1, param2, param3]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let kind = force_u32!(interpreter, convert!(interpreter, param1)?)?;
+#[inline]
+fn operations<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra, // [mut param1, mut param2, mut param3]: [(TypedByte, usize, bool); 3],
+) {
+  let mut param1 = interpreter.instruction.params[0];
+  let mut param2 = interpreter.instruction.params[1];
+  let mut param3 = interpreter.instruction.params[2];
 
-  let mut value = convert!(interpreter, param2)?;
-  let mut value2 = convert!(interpreter, param3)?;
+  convert!(interpreter, param1);
+  convert!(interpreter, param2);
+  convert!(interpreter, param3);
+
+  let kind = force_u32!(interpreter, param1.0);
 
   if param2.2 {
-    value.convert(value2.r#type);
+    param2.0.convert(param3.0.r#type);
   }
 
   if param3.2 {
-    value2.convert(value.r#type);
+    param3.0.convert(param2.0.r#type);
   }
 
-  if value.r#type != value2.r#type {
-    return ierror!(
-      "Adding with incompatible types at command {}",
-      interpreter.current_command
-    );
-  }
-  OPERATIONS[kind as usize][value.r#type as usize](
-    interpreter,
-    (value, value2),
+  OPERATIONS[kind as usize][param2.0.r#type as usize](
+    &mut param2.0,
+    param3.0.value,
   );
-  Ok(())
+
+  interpreter.stack.push(param2.0);
 }
 
 //OPCODE 2
-#[inline(always)]
-fn if_lower(
-  interpreter: &mut Interpreter,
-  [param1, param2, param3]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let value = convert!(interpreter, param1)?;
-  let value2 = convert!(interpreter, param2)?;
+#[inline]
+fn if_lower<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+  let mut param2 = interpreter.instruction.params[1];
+  let mut param3 = interpreter.instruction.params[2];
+  convert!(interpreter, param1);
+  convert!(interpreter, param2);
+  convert!(interpreter, param3);
 
-  let pos = force_u32!(interpreter, convert!(interpreter, param3)?)?;
-  if value.r#type != value2.r#type {
-    return Err(IError::message(format!(
-      "Comparing with incompatible types {}",
-      interpreter.current_command
-    )));
+  let pos = force_u32!(interpreter, param3.0);
+
+  match param1.0.r#type {
+    Type::Usigned => {
+      if u32_from_bytes(*param1.0) < u32_from_bytes(*param2.0) {
+        interpreter.index = (pos * 15) as usize;
+      }
+    }
+    Type::Signed => {
+      if i32_from_bytes(*param1.0) < i32_from_bytes(*param2.0) {
+        interpreter.index = (pos * 15) as usize;
+      }
+    }
+    Type::Floating => {
+      if i32_from_bytes(*param1.0) < i32_from_bytes(*param2.0) {
+        interpreter.index = (pos * 15) as usize;
+      }
+    }
   }
-  if *value < *value2 {
-    interpreter.index = (pos * 15) as usize;
-  }
-  Ok(())
 }
 
 //OPCODE 3
-fn push_stack(
-  interpreter: &mut Interpreter,
-  [param1, ..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let value = convert!(interpreter, param1)?;
-  interpreter.stack.push(value);
-  Ok(())
+#[inline]
+fn push_stack<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+  convert!(interpreter, param1);
+  interpreter.stack.push(param1.0);
 }
 
 //OPCODE 4
-fn if_true_jump(
-  interpreter: &mut Interpreter,
-  [param1, param2, param3]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let value = convert!(interpreter, param1)?;
-  let value2 = convert!(interpreter, param2)?;
-  let pos = force_u32!(interpreter, convert!(interpreter, param3)?)?;
+#[inline]
+fn if_true_jump<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+  let mut param2 = interpreter.instruction.params[1];
+  let mut param3 = interpreter.instruction.params[2];
 
-  if value.r#type != value2.r#type {
-    return ierror!("Comparing incompatible types");
+  convert!(interpreter, param1);
+  convert!(interpreter, param2);
+  convert!(interpreter, param3);
+  let pos = force_u32!(interpreter, param3.0);
+
+  if param1.0.r#type != param2.0.r#type {
+    interpreter.err = someierror!("Comparing incompatible types");
+    return;
   }
 
-  if value.r#type == Type::Floating {
-    let value = f32::from_be_bytes(*value);
-    let value2 = f32::from_be_bytes(*value2);
+  if param1.0.r#type == Type::Floating {
+    let value = f32_from_bytes(*param1.0);
+    let value2 = f32_from_bytes(*param2.0);
     if approx_equal(value, value2, 4) {
       interpreter.index = (pos * 15) as usize;
     }
-  } else if *value == *value2 {
+  } else if *param1.0 == *param2.0 {
     interpreter.index = (pos * 15) as usize;
   };
-  Ok(())
 }
 
 //OPCODE 5
 #[inline(always)]
-fn vstack_jump(
-  interpreter: &mut Interpreter,
-  [param1, ..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let value =
-    force_u32!(interpreter, convert!(interpreter, param1)?)?;
-  if interpreter.stack.is_empty() {
-    interpreter.index = (value * 15) as usize;
-  }
-  Ok(())
+fn vstack_jump<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+
+  convert!(interpreter, param1);
+  let value = force_u32!(interpreter, param1.0);
+  interpreter.index =
+    ((value * 15) * !interpreter.stack.is_empty() as u32) as usize;
 }
 
 //OPCODE 6
 #[inline(always)]
-fn input(
-  interpreter: &mut Interpreter,
-  [param1, param2, param3]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let mut value =
-    force_u32!(interpreter, convert!(interpreter, param1)?)? as usize;
-  let kind = force_u32!(interpreter, convert!(interpreter, param2)?)?;
-  let limit =
-    force_u32!(interpreter, convert!(interpreter, param3)?)? as usize;
+fn input<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  infra: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+  let mut param2 = interpreter.instruction.params[1];
+  let mut param3 = interpreter.instruction.params[2];
 
-  std::io::stdout().flush()?;
-  let buff = interpreter.infra.read_line()?;
+  convert!(interpreter, param1);
+  convert!(interpreter, param2);
+  convert!(interpreter, param3);
+
+  let mut value = force_u32!(interpreter, param1.0) as usize;
+  let kind = force_u32!(interpreter, param2.0);
+  let limit = force_u32!(interpreter, param3.0) as usize;
+
+  try_err!(interpreter, std::io::stdout().flush());
+  let buff = try_err!(interpreter, infra.read_line());
 
   match kind {
     1 => {
-      interpreter.validate_until(value);
       match buff.trim().parse::<u32>() {
-        Ok(x) => interpreter.memory[value] = x.into(),
+        Ok(x) => interpreter.memory[value % A] = x.into(),
         Err(_) => interpreter.stack.push(1u32.into()),
       };
     }
-    2 => {
-      interpreter.validate_until(value);
-      match buff.trim().parse::<i32>() {
-        Ok(x) => interpreter.memory[value] = x.into(),
-        Err(_) => interpreter.stack.push(1u32.into()),
-      }
-      // interpreter.memory[value] = buff.trim().parse::<i32>()?.into()
-    }
-    3 => {
-      interpreter.validate_until(value);
-      match buff.trim().parse::<f32>() {
-        Ok(x) => interpreter.memory[value] = x.into(),
-        Err(_) => interpreter.stack.push(1u32.into()),
-      }
-      // interpreter.memory[value] = buff.trim().parse::<f32>()?.into()
-    }
+    2 => match buff.trim().parse::<i32>() {
+      Ok(x) => interpreter.memory[value % A] = x.into(),
+      Err(_) => interpreter.stack.push(1u32.into()),
+    },
+    3 => match buff.trim().parse::<f32>() {
+      Ok(x) => interpreter.memory[value % A] = x.into(),
+      Err(_) => interpreter.stack.push(1u32.into()),
+    },
     _ => {
-      let address_to = value + limit + 2;
-      interpreter.validate_until(address_to);
       for (i, char) in buff.chars().enumerate() {
         if i < limit {
           let char = if char == '\n' || char == '\0' {
-            interpreter.memory[value] = [0; 4].into();
+            interpreter.memory[value % A] = [0; 4].into();
             continue;
           } else {
             char
@@ -279,127 +287,117 @@ fn input(
           let mut bytes: [u8; 4] = [0, 0, 0, 0];
 
           char.encode_utf8(&mut bytes);
-          let mut zeroes = 0;
-          for a in bytes {
-            if a == 0 {
-              zeroes += 1;
-            }
-          }
-          interpreter.memory[value] =
-            (u32::from_be_bytes(bytes) >> (8 * zeroes)).into();
+
+          interpreter.memory[value % A] =
+            (u32_from_bytes(bytes)).into();
           value += 1;
         } else {
           break;
         }
       }
-      interpreter.memory[value] = 0u32.into();
+      interpreter.memory[value % A] = 0u32.into();
     }
   };
-
-  Ok(())
 }
 
 //OPCODE 7
 #[inline(always)]
-fn print(
-  interpreter: &mut Interpreter,
-  [..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  if interpreter.stack.is_empty() {
-    return Err(IError::message(format!(
+fn print<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  infra: &mut dyn Infra,
+) {
+  if interpreter.stack.sx == 0 {
+    interpreter.err = someierror!(
       "Trying to use the stack while empty in command {}",
-      interpreter.current_command
-    )));
+      interpreter.current_command()
+    );
+    return;
   }
-  let stack_byte = top!(interpreter.stack)?;
-  if stack_byte.r#type != Type::Usigned {
-    return Err(IError::message("Invalid number type for ASCII"));
-  }
-  interpreter.infra.print(&*stack_byte);
+  let stack_byte = top!(interpreter, interpreter.stack);
+
+  infra.print(&*stack_byte);
 
   interpreter.stack.pop();
-  Ok(())
 }
 
 //OPCODE 8
 #[inline(always)]
-fn printnumber(
-  interpreter: &mut Interpreter,
-  [..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let TypedByte { value, r#type } = top!(interpreter.stack)?;
+fn printnumber<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  infra: &mut dyn Infra,
+) {
+  let TypedByte { value, r#type } =
+    top!(interpreter, interpreter.stack);
 
   match r#type {
-    Type::Floating => interpreter
-      .infra
-      .print(f32::from_be_bytes(value).to_string().as_bytes()),
-    Type::Signed => interpreter
-      .infra
-      .print(i32::from_be_bytes(value).to_string().as_bytes()),
-    Type::Usigned => interpreter
-      .infra
-      .print(u32::from_be_bytes(value).to_string().as_bytes()),
+    Type::Floating => {
+      infra.print(f32_from_bytes(value).to_string().as_bytes())
+    }
+    Type::Signed => {
+      infra.print(i32_from_bytes(value).to_string().as_bytes())
+    }
+    Type::Usigned => {
+      infra.print(u32_from_bytes(value).to_string().as_bytes())
+    }
   }
 
   interpreter.stack.pop();
-  Ok(())
 }
 
 //OPCODE 9
 #[inline(always)]
-fn jump(
-  interpreter: &mut Interpreter,
-  [param1, ..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let value =
-    force_u32!(interpreter, convert!(interpreter, param1)?)?;
+fn jump<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+
+  convert!(interpreter, param1);
+  let value = force_u32!(interpreter, param1.0);
   interpreter.index = (value * 15) as usize;
-  Ok(())
 }
 
 //OPCODE 10
 #[inline(always)]
-fn set(
-  interpreter: &mut Interpreter,
-  [param1, ..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let address =
-    force_u32!(interpreter, convert!(interpreter, param1)?)? as usize;
-  let typed_byte = top!(interpreter.stack)?;
+fn set<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
 
+  convert!(interpreter, param1);
+
+  let address = force_u32!(interpreter, param1.0) as usize;
+  let typed_byte = top!(interpreter, interpreter.stack);
   interpreter.stack.pop();
-  interpreter.validate_until(address);
-  interpreter.memory[address] = typed_byte;
-  Ok(())
+  interpreter.memory[address % A] = typed_byte;
 }
 
 //OPCODE 11
 #[inline(always)]
-fn pop_stack(
-  interpreter: &mut Interpreter,
-  [..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  if !interpreter.stack.is_empty() {
-    interpreter.stack.pop();
-  }
-  Ok(())
+fn pop_stack<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  interpreter.stack.pop();
 }
 
 //OPCODE 12
 #[inline(always)]
-fn load_string(
-  interpreter: &mut Interpreter,
-  [param1, ..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  let mut value =
-    force_u32!(interpreter, convert!(interpreter, param1)?)? as usize;
+fn load_string<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+
+  convert!(interpreter, param1);
+  let mut value = force_u32!(interpreter, param1.0) as usize;
   let mut buffer: Vec<u32> = Vec::new();
-  interpreter.validate_until(value + 5);
   loop {
     if value == interpreter.memory.len() {
       break;
     }
-    let temp = u32::from_be_bytes(*interpreter.memory[value]);
+    let temp = u32_from_bytes(*interpreter.memory[value % A]);
     if temp != 0 {
       buffer.push(temp);
       value += 1;
@@ -410,33 +408,36 @@ fn load_string(
   buffer.reverse();
   for i in buffer {
     interpreter.stack.push(TypedByte {
-      value: i.to_be_bytes(),
+      value: u32_to_bytes(i),
       r#type: Type::Usigned,
     });
   }
-  Ok(())
 }
 
 //OPCODE 13
 #[inline(always)]
-fn time_operations(
-  interpreter: &mut Interpreter,
-  [param1, ..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  match force_u32!(interpreter, convert!(interpreter, param1)?)? {
+fn time_operations<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+
+  convert!(interpreter, param1);
+  match force_u32!(interpreter, param1.0) {
     // SET ax
     0 => {
       interpreter.time = Some(Instant::now());
     }
     //SET bx
     1 => {
-      let a = top!(interpreter.stack)?.value;
+      let a = top!(interpreter, interpreter.stack).value;
       interpreter.stack.pop();
-      let b = top!(interpreter.stack)?.value;
-      let result = [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]];
+      let b = top!(interpreter, interpreter.stack).value;
+      let result = [b[0], b[1], b[2], b[3], a[0], a[1], a[2], a[3]];
 
-      interpreter.duration =
-        Some(Duration::from_millis(u64::from_be_bytes(result)))
+      interpreter.duration = Some(Duration::from_millis(unsafe {
+        std::mem::transmute(result)
+      }));
     }
     // CMP ax elapsed to bx
     2 => {
@@ -459,118 +460,134 @@ fn time_operations(
     }
     _ => {}
   }
-  Ok(())
 }
 //OPCODE 14
 #[inline(always)]
-fn flush(
-  interpreter: &mut Interpreter,
-  _: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  interpreter.infra.flush();
-  Ok(())
+fn flush<const A: usize>(
+  _: &mut Interpreter<A>,
+  infra: &mut dyn Infra,
+) {
+  infra.flush();
 }
 //OPCODE 15
 #[inline(always)]
-fn terminal_commands(
-  interpreter: &mut Interpreter,
-  [param1, ..]: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
-  match force_u32!(interpreter, convert!(interpreter, param1)?)? {
+fn terminal_commands<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  infra: &mut dyn Infra,
+) {
+  let mut param1 = interpreter.instruction.params[0];
+
+  convert!(interpreter, param1);
+
+  match force_u32!(interpreter, param1.0) {
     // RAW MODE
     0 => {
-      let on_off = force_u32!(interpreter, top!(interpreter.stack)?)?;
+      let on_off =
+        force_u32!(interpreter, top!(interpreter, interpreter.stack));
       interpreter.stack.pop();
       if on_off == 0 {
-        interpreter.infra.disable_raw_mode()?;
+        try_err!(interpreter, infra.disable_raw_mode());
       } else {
-        interpreter.infra.enable_raw_mode()?;
+        try_err!(interpreter, infra.enable_raw_mode());
       }
     }
     // CLEAR
     1 => {
-      let r#type = force_u32!(interpreter, top!(interpreter.stack)?)?;
+      let r#type =
+        force_u32!(interpreter, top!(interpreter, interpreter.stack));
       interpreter.stack.pop();
       if r#type == 0 {
-        interpreter.infra.clear_purge()?;
+        try_err!(interpreter, infra.clear_purge());
       } else {
-        interpreter.infra.clear_all()?;
+        try_err!(interpreter, infra.clear_all());
       }
     }
     // POLL KEYBOARD
     2 => {
-      let a = *top!(interpreter.stack)?;
+      let a = *top!(interpreter, interpreter.stack);
       interpreter.stack.pop();
-      let b = *top!(interpreter.stack)?;
+      let b = *top!(interpreter, interpreter.stack);
       interpreter.stack.pop();
-      let result = [a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]];
-      let value =
-        interpreter.infra.poll(u64::from_be_bytes(result))?;
-
+      let result = [b[0], b[1], b[2], b[3], a[0], a[1], a[2], a[3]];
+      let value = try_err!(
+        interpreter,
+        infra.poll(unsafe {
+          std::mem::transmute::<[u8; 8], u64>(result)
+        })
+      );
       interpreter.stack.push(value.into());
     }
     // SHOW/HIDE CURSOR
     3 => {
-      let on_off = force_u32!(interpreter, top!(interpreter.stack)?)?;
+      let on_off =
+        force_u32!(interpreter, top!(interpreter, interpreter.stack));
       interpreter.stack.pop();
       if on_off == 0 {
-        interpreter.infra.hide_cursor()?;
+        try_err!(interpreter, infra.hide_cursor());
       } else {
-        interpreter.infra.show_cursor()?;
+        try_err!(interpreter, infra.show_cursor());
       }
     }
     // MOVE CURSOR
     4 => {
-      let x = force_u32!(interpreter, top!(interpreter.stack)?)?;
+      let x =
+        force_u32!(interpreter, top!(interpreter, interpreter.stack));
       interpreter.stack.pop();
-      let y = force_u32!(interpreter, top!(interpreter.stack)?)?;
+      let y =
+        force_u32!(interpreter, top!(interpreter, interpreter.stack));
       interpreter.stack.pop();
-      interpreter.infra.move_cursor(x, y)?;
+      try_err!(interpreter, infra.move_cursor(x, y));
     }
     // FONT COLOR
     5 => {
-      let color = force_u32!(interpreter, top!(interpreter.stack)?)?;
+      let color =
+        force_u32!(interpreter, top!(interpreter, interpreter.stack));
       interpreter.stack.pop();
-      interpreter.infra.use_color(color)?;
+      try_err!(interpreter, infra.use_color(color));
     }
     //BACKGROUND
     6 => {
-      let color = force_u32!(interpreter, top!(interpreter.stack)?)?;
+      let color =
+        force_u32!(interpreter, top!(interpreter, interpreter.stack));
       interpreter.stack.pop();
-      interpreter.infra.use_background(color)?;
+      try_err!(interpreter, infra.use_background(color));
     }
-    _ => return Err(IError::message("Invalid terminal command")),
+    _ => {
+      interpreter.err = someierror!("Invalid terminal command");
+      return;
+    }
   }
-  Ok(())
 }
 
 // OPCODE 16
-fn random(
-  interpreter: &mut Interpreter,
-  _: [(TypedByte, usize, bool); 3],
-) -> Result<(), IError> {
+#[inline(always)]
+fn random<const A: usize>(
+  interpreter: &mut Interpreter<A>,
+  _: &mut dyn Infra,
+) {
   let mut rng = rand::thread_rng();
   interpreter.stack.push(rng.gen::<f32>().into());
-  Ok(())
 }
 
-impl<'a> Interpreter<'a> {
-  pub fn new(
-    buffer: &'a [u8],
-    infra: &'a mut dyn Infra,
-  ) -> Result<Self, IError> {
-    Ok(Self {
-      memory: Vec::new(),
-      stack: Stack::default(),
+impl<'a, const A: usize> Interpreter<'a, A> {
+  pub const fn new(buffer: &'a [u8]) -> Self {
+    Self {
+      memory: [TypedByte {
+        r#type: Type::Usigned,
+        value: [0; 4],
+      }; A],
+      stack: Stack::new(),
       debug: false,
       time: None,
       duration: None,
-      infra,
-      index: 0,
-      buffer,
-      current_command: 0,
-      opcode_functions: [
-        do_no_shit,
+      convertions: [
+        not_convert,
+        convert_chupou,
+        conver_fudeu,
+        convert_penetrou,
+      ],
+      operations: [
+        dns,
         operations,
         if_lower,
         push_stack,
@@ -587,131 +604,368 @@ impl<'a> Interpreter<'a> {
         flush,
         terminal_commands,
         random,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
+        dns,
       ],
-      convertion_array: [
-        not_convert,
-        convert_chupou,
-        conver_fudeu,
-        convert_penetrou,
-      ],
-    })
+      instruction: Instruction::new(),
+      index: 0,
+      err: None,
+      buffer,
+    }
   }
 
-  pub fn get_bytes_data(buffer: &[u8]) -> Instruction {
-    let opcode = buffer[0];
-    let kind_byte = buffer[1];
-    let param1_byte = [buffer[2], buffer[3], buffer[4], buffer[5]];
-    let param2_byte = [buffer[6], buffer[7], buffer[8], buffer[9]];
-    let param3_byte =
-      [buffer[10], buffer[11], buffer[12], buffer[13]];
-    let types = buffer[14];
-    let converted_types = convert_kind_byte(types);
-    let converted_kind = convert_kind_byte(kind_byte);
+  pub fn current_command(&self) -> usize {
+    self.index / 15
+  }
 
-    let param1 = TypedByte {
-      value: param1_byte,
-      r#type: Type::from(converted_types[0]),
-    };
-    let param2 = TypedByte {
-      value: param2_byte,
-      r#type: Type::from(converted_types[1]),
-    };
-    let param3 = TypedByte {
-      value: param3_byte,
-      r#type: Type::from(converted_types[2]),
-    };
+  pub fn get_bytes_data(buffer: [u8; 15], inst: &mut Instruction) {
+    let converted_types = convert_kind_byte(buffer[14]);
+    let converted_kind = convert_kind_byte(buffer[1]);
 
     let [param1_convert, param2_convert] =
       convert_two_bits(converted_kind[3] as u8);
     let [param3_convert, _] =
       convert_two_bits(converted_types[3] as u8);
 
-    Instruction {
-      opcode,
-      params: [
-        InstructionParam {
-          byte: param1,
-          convert: param1_convert,
-          kind: converted_kind[0],
-        },
-        InstructionParam {
-          byte: param2,
-          convert: param2_convert,
-          kind: converted_kind[1],
-        },
-        InstructionParam {
-          byte: param3,
-          convert: param3_convert,
-          kind: converted_kind[2],
-        },
-      ],
-    }
+    inst.opcode = buffer[0];
+
+    inst.params[0].0 = TypedByte {
+      value: [buffer[2], buffer[3], buffer[4], buffer[5]],
+      r#type: Type::from(converted_types[0]),
+    };
+    inst.params[0].2 = param1_convert;
+    inst.params[0].1 = converted_kind[0];
+
+    inst.params[1].0 = TypedByte {
+      value: [buffer[6], buffer[7], buffer[8], buffer[9]],
+      r#type: Type::from(converted_types[1]),
+    };
+    inst.params[1].2 = param2_convert;
+    inst.params[1].1 = converted_kind[1];
+
+    inst.params[2].0 = TypedByte {
+      value: [buffer[10], buffer[11], buffer[12], buffer[13]],
+      r#type: Type::from(converted_types[2]),
+    };
+    inst.params[2].2 = param3_convert;
+    inst.params[2].1 = converted_kind[2];
   }
   pub fn debug(&mut self, new: bool) {
     self.debug = new;
   }
 
-  pub fn run_buffer(&mut self) -> Result<(), IError> {
-    if self.buffer.is_empty() {
-      return ierror!("Empty buffer");
-    }
+  pub fn run_buffer(
+    &mut self,
+    infra: &mut dyn Infra,
+  ) -> Result<(), IError> {
     loop {
       if self.index + 15 > self.buffer.len() {
         break;
       }
-      let instruction = Self::get_bytes_data(
-        &self.buffer[self.index..self.index + 15],
-      );
-      if self.debug {
-        self.infra.println(format!("{}\n", instruction));
-      }
-      let param1 = &instruction.params[0];
-      let param2 = &instruction.params[1];
-      let param3 = &instruction.params[2];
+      let converted_types =
+        convert_kind_byte(self.buffer[self.index + 14]);
+      let converted_kind =
+        convert_kind_byte(self.buffer[self.index + 1]);
+
+      let [param1_convert, param2_convert] =
+        convert_two_bits(converted_kind[3] as u8);
+      let [param3_convert, _] =
+        convert_two_bits(converted_types[3] as u8);
+
+      self.instruction.opcode = self.buffer[self.index];
+
+      self.instruction.params[0].0 = TypedByte {
+        value: [
+          self.buffer[self.index + 2],
+          self.buffer[self.index + 3],
+          self.buffer[self.index + 4],
+          self.buffer[self.index + 5],
+        ],
+        r#type: Type::from(converted_types[0]),
+      };
+      self.instruction.params[0].2 = param1_convert;
+      self.instruction.params[0].1 = converted_kind[0];
+
+      self.instruction.params[1].0 = TypedByte {
+        value: [
+          self.buffer[self.index + 6],
+          self.buffer[self.index + 7],
+          self.buffer[self.index + 8],
+          self.buffer[self.index + 9],
+        ],
+        r#type: Type::from(converted_types[1]),
+      };
+      self.instruction.params[1].2 = param2_convert;
+      self.instruction.params[1].1 = converted_kind[1];
+
+      self.instruction.params[2].0 = TypedByte {
+        value: [
+          self.buffer[self.index + 10],
+          self.buffer[self.index + 11],
+          self.buffer[self.index + 12],
+          self.buffer[self.index + 13],
+        ],
+        r#type: Type::from(converted_types[2]),
+      };
+      self.instruction.params[2].2 = param3_convert;
+      self.instruction.params[2].1 = converted_kind[2];
 
       self.index += 15;
+      self.execute_command(infra);
 
-      if let Some(err) = self.execute_command(
-        instruction.opcode,
-        (param1.byte, param1.kind, param1.convert),
-        (param2.byte, param2.kind, param2.convert),
-        (param3.byte, param3.kind, param3.convert),
-      ) {
-        return Err(err);
+      if let Some(err) = &self.err {
+        return Err(err.clone());
       }
-
-      self.current_command = self.index / 15;
     }
     Ok(())
   }
-  pub fn validate_until(&mut self, address: usize) {
-    if self.memory.len() <= address {
-      self.memory.resize(address + 1, 0u32.into());
-    }
-  }
+  #[inline]
   pub fn convert(
     &mut self,
-    byte: TypedByte,
+    byte: &mut TypedByte,
     r#type: usize,
-  ) -> Option<TypedByte> {
-    self.convertion_array[r#type](byte, self)
+  ) -> bool {
+    self.convertions[r#type](byte, self)
   }
-
-  #[inline(always)]
-  pub fn execute_command(
-    &mut self,
-    opcode: u8,
-    param1: (TypedByte, usize, bool),
-    param2: (TypedByte, usize, bool),
-    param3: (TypedByte, usize, bool),
-  ) -> Option<IError> {
-    if let Err(err) = self.opcode_functions[opcode as usize](
-      self,
-      [param1, param2, param3],
-    ) {
-      Some(err)
-    } else {
-      None
-    }
+  #[inline]
+  pub fn execute_command(&mut self, infra: &mut dyn Infra) {
+    self.operations[self.instruction.opcode as usize](self, infra);
   }
 }

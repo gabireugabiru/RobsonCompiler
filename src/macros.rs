@@ -4,7 +4,7 @@ macro_rules! compiler {
       Ok(a) => a,
       Err(err) => {
         if err.to_string().contains("os error 2") {
-          return Err(crate::data_struct::IError::message(format!(
+          return Err(crate::data_struct::IError::message(&format!(
             "No such file '{}' (os error 2)",
             $a
           )));
@@ -22,7 +22,7 @@ macro_rules! ierror {
   };
 ($($arg:tt)*) => {
     Err(crate::data_struct::IError::message(
-    format!($($arg)*)
+    &format!($($arg)*)
     ))
 };
 }
@@ -31,14 +31,8 @@ macro_rules! replace_params {
   ($self:expr, $string:ident) => {
     if $string.contains("$ROBSON") || $string.contains("?ROBSON") {
       if let Some(macro_params) = &mut $self.macro_params {
-        let mut should_pop = false;
-        let current = match $self.macro_current.top() {
-          Some(a) => {
-            should_pop = true;
-            a
-          }
-          None => 0,
-        };
+        let current = $self.macro_current.top().into();
+        let should_pop = $self.macro_current.sx > 0;
         let (str, has_next, is_expr) =
           crate::utils::convert_macro_robson(
             $string.to_string(),
@@ -52,7 +46,7 @@ macro_rules! replace_params {
           }
 
           if has_next {
-            $self.macro_current.push(current + 1);
+            $self.macro_current.push((current + 1).into());
           }
 
           let b = $string.split(" ").collect::<Vec<&str>>();
@@ -65,17 +59,15 @@ macro_rules! replace_params {
           }
 
           macro_params.insert(b[1].replace("$", "?"), str);
-          match $self.macro_jump.top() {
-            Some(x) => {
-              if x != $self.pos {
-                $self.macro_jump.push($self.pos);
-              } else if !has_next {
-                $self.macro_jump.pop();
-              }
+          if $self.macro_jump.sx != 0 {
+            let x: usize = $self.macro_jump.top().into();
+            if x != $self.pos {
+              $self.macro_jump.push($self.pos.into());
+            } else if !has_next {
+              $self.macro_jump.pop();
             }
-            None => {
-              $self.macro_jump.push($self.pos);
-            }
+          } else {
+            $self.macro_jump.push($self.pos.into());
           }
 
           $self.pos += 1;
@@ -99,8 +91,10 @@ macro_rules! sanitize_param {
             $self.pos - 1
           );
         }
-        $string =
-          format!("comeu {}", u32::from_be_bytes(true_value.value))
+        $string = format!(
+          "comeu {}",
+          crate::utils::u32_from_bytes(true_value.value)
+        )
       }
       if let Err(err) = result {
         if err.error.contains("Cant find") && $self.is_preload {
@@ -113,39 +107,57 @@ macro_rules! sanitize_param {
 
 macro_rules! force_u32 {
   ($self:ident, $expr:expr) => {
-    $expr.force_u32().ok_or_else(|| {
-      crate::data_struct::IError::message(&format!(
-        "Invalid number type at the command {}",
-        $self.current_command
-      ))
-    })
+    $expr.force_u32()
   };
 }
 
 macro_rules! top {
-  ($expr:expr) => {
-    $expr.top().ok_or_else(|| {
-      crate::data_struct::IError::message(
-        "Trying to access the stack while it is empty",
-      )
-    })
+  ($self:ident, $expr:expr) => {
+    $expr.top()
   };
 }
 
 macro_rules! convert {
   ($self:ident, $ident:ident) => {
-    $self.convert($ident.0, $ident.1).ok_or_else(|| {
-      crate::data_struct::IError::message(&format!(
-        "Failed to convert expression of kind {} at the command '{}'",
-        $ident.1, $self.current_command
-      ))
-    })
+    if !$self.convert(&mut $ident.0, $ident.1) {
+        $self.err = Some(crate::data_struct::IError::message(&format!(
+          "Failed to convert expression of kind {} at the command '{}'",
+          $ident.1, $self.current_command()
+        )));
+        return;
+    }
   };
 }
+
+macro_rules! someierror {
+  ($arg:literal) => {
+    Some(crate::data_struct::IError::message(&$arg))
+  };
+($($arg:tt)*) => {
+    Some(crate::data_struct::IError::message(
+    &format!($($arg)*)
+    ))
+};
+}
+
+macro_rules! try_err {
+  ($self:ident, $expr:expr) => {
+    match $expr {
+      Ok(a) => a,
+      Err(err) => {
+        $self.err = Some(err.into());
+        return;
+      }
+    }
+  };
+}
+
 pub(crate) use compiler;
 pub(crate) use convert;
 pub(crate) use force_u32;
 pub(crate) use ierror;
 pub(crate) use replace_params;
 pub(crate) use sanitize_param;
+pub(crate) use someierror;
 pub(crate) use top;
+pub(crate) use try_err;

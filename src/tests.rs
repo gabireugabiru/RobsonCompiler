@@ -48,6 +48,9 @@ impl CompilerInfra for TestInfra {
 }
 
 impl Infra for TestInfra {
+  fn is_raw_mode(&self) -> bool {
+    false
+  }
   fn print(&mut self, to_print: &[u8]) {
     self.stdout.push_str(&String::from_utf8_lossy(&to_print));
   }
@@ -72,12 +75,12 @@ impl Infra for TestInfra {
     Ok(())
   }
   fn disable_raw_mode(
-    &self,
+    &mut self,
   ) -> Result<(), crate::data_struct::IError> {
     Ok(())
   }
   fn enable_raw_mode(
-    &self,
+    &mut self,
   ) -> Result<(), crate::data_struct::IError> {
     Ok(())
   }
@@ -129,9 +132,8 @@ fn push_and_print() {
   let compiled = compiler.compile().unwrap();
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 #[test]
 fn jump() {
@@ -143,9 +145,8 @@ fn jump() {
   let compiled = compiler.compile().unwrap();
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 
 #[test]
@@ -158,9 +159,8 @@ fn memory() {
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
   let compiled = compiler.compile().unwrap();
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 
 #[test]
@@ -173,9 +173,8 @@ fn if_() {
   let compiled = compiler.compile().unwrap();
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 #[test]
 fn input() {
@@ -186,9 +185,8 @@ fn input() {
   .unwrap();
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
   let compiled = compiler.compile().unwrap();
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 #[test]
 fn operations() {
@@ -201,9 +199,8 @@ fn operations() {
 
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 
 #[test]
@@ -216,9 +213,8 @@ fn types() {
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
   let compiled = compiler.compile().unwrap();
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 
 #[test]
@@ -231,9 +227,8 @@ fn include() {
   let compiled = compiler.compile().unwrap();
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 
 #[test]
@@ -246,9 +241,8 @@ fn multiplelambeu() {
   let compiled = compiler.compile().unwrap();
   let mut infra = TestInfra::new("12\ntesteteste123".to_owned());
 
-  let mut interpreter =
-    Interpreter::new(&compiled, &mut infra).unwrap();
-  interpreter.run_buffer().unwrap()
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }
 
 #[test]
@@ -275,4 +269,18 @@ fn convert_robson_macro() {
 
   assert_eq!(&c, "comeu 111\n");
   assert_eq!(c_, true);
+}
+
+#[test]
+fn thousand() {
+  let mut compiler = Compiler::new(
+    "tests/1000.robson".to_owned(),
+    Box::new(TestInfra::new("".to_owned())),
+  )
+  .unwrap();
+  let compiled = compiler.compile().unwrap();
+  let mut infra = TestInfra::new("".to_owned());
+
+  let mut interpreter = Interpreter::<10>::new(&compiled);
+  interpreter.run_buffer(&mut infra).unwrap()
 }

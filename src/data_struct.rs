@@ -5,61 +5,107 @@ use std::{
   ops::{Deref, DerefMut},
 };
 
-#[derive(Debug)]
-pub struct InstructionParam {
-  pub convert: bool,
-  pub kind: usize,
-  pub byte: TypedByte,
-}
+use crate::utils::{
+  f32_from_bytes, f32_to_bytes, i32_from_bytes, i32_to_bytes,
+  u32_from_bytes, u32_to_bytes,
+};
 
-impl InstructionParam {
-  pub fn fn_is_empty(&self) -> bool {
-    (*self.byte).is_empty() && self.kind == 0 && self.convert
-  }
-}
-impl Display for InstructionParam {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "{} {} {}",
-      match self.kind {
-        0 => "comeu",
-        1 => "chupou",
-        2 => "fudeu",
-        3 => "penetrou",
-        _ => "unknwon",
-      },
-      self.byte,
-      if self.convert { "robson" } else { "" }
-    )
-  }
-}
-#[derive(Debug)]
+// #[derive(Debug, Clone, Copy)]
+// pub struct InstructionParam {
+//   pub convert: bool,
+//   pub kind: usize,
+//   pub byte: TypedByte,
+// }
+
+// impl InstructionParam {
+//   pub fn fn_is_empty(&self) -> bool {
+//     (*self.byte).is_empty() && self.kind == 0 && self.convert
+//   }
+// }
+// impl Display for InstructionParam {
+//   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//     write!(
+//       f,
+//       "{} {} {}",
+//       match self.kind {
+//         0 => "comeu",
+//         1 => "chupou",
+//         2 => "fudeu",
+//         3 => "penetrou",
+//         _ => "unknwon",
+//       },
+//       self.byte,
+//       if self.convert { "robson" } else { "" }
+//     )
+//   }
+// }
+#[derive(Debug, Clone, Copy)]
 pub struct Instruction {
   pub opcode: u8,
-  pub params: [InstructionParam; 3],
+  pub params: [(TypedByte, usize, bool); 3],
 }
 impl Display for Instruction {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let mut params = String::new();
 
     for (index, i) in self.params.iter().enumerate() {
-      if !i.fn_is_empty() {
-        params.push_str(&format!("param{} {}\n", index + 1, i));
-      }
+      params.push_str(&format!(
+        "param{} {}\n",
+        index + 1,
+        match i.1 {
+          0 => "comeu",
+          1 => "chupou",
+          2 => "fudeu",
+          3 => "penetrou",
+          _ => "unknown",
+        }
+      ));
     }
 
     write!(f, "opcode: {}\n{params}", self.opcode)
   }
 }
-#[derive(Debug)]
+impl Instruction {
+  pub const fn new() -> Self {
+    Self {
+      opcode: 0,
+      params: [
+        (
+          TypedByte {
+            r#type: Type::Usigned,
+            value: [0; 4],
+          },
+          0,
+          false,
+        ),
+        (
+          TypedByte {
+            r#type: Type::Usigned,
+            value: [0; 4],
+          },
+          0,
+          false,
+        ),
+        (
+          TypedByte {
+            r#type: Type::Usigned,
+            value: [0; 4],
+          },
+          0,
+          false,
+        ),
+      ],
+    }
+  }
+}
+#[derive(Debug, Clone)]
 pub struct IError {
   pub error: String,
 }
 impl IError {
   pub fn message<T>(error: T) -> Self
   where
-    T: ToString,
+    T: Display,
   {
     Self {
       error: error.to_string(),
@@ -101,7 +147,7 @@ pub struct TypedByte {
 impl From<u32> for TypedByte {
   fn from(value: u32) -> Self {
     Self {
-      value: value.to_be_bytes(),
+      value: u32_to_bytes(value),
       r#type: Type::Usigned,
     }
   }
@@ -109,7 +155,7 @@ impl From<u32> for TypedByte {
 impl From<i32> for TypedByte {
   fn from(value: i32) -> Self {
     Self {
-      value: value.to_be_bytes(),
+      value: i32_to_bytes(value),
       r#type: Type::Signed,
     }
   }
@@ -117,7 +163,7 @@ impl From<i32> for TypedByte {
 impl From<f32> for TypedByte {
   fn from(value: f32) -> Self {
     Self {
-      value: value.to_be_bytes(),
+      value: f32_to_bytes(value),
       r#type: Type::Floating,
     }
   }
@@ -131,11 +177,27 @@ impl From<[u8; 4]> for TypedByte {
     }
   }
 }
-
+impl From<usize> for TypedByte {
+  fn from(value: usize) -> Self {
+    Self {
+      value: u32_to_bytes(value as u32),
+      r#type: Type::Usigned,
+    }
+  }
+}
+impl Into<usize> for TypedByte {
+  fn into(self) -> usize {
+    if self.r#type == Type::Usigned {
+      u32_from_bytes(self.value) as usize
+    } else {
+      0
+    }
+  }
+}
 impl From<bool> for TypedByte {
   fn from(value: bool) -> Self {
     TypedByte {
-      value: (value as u32).to_be_bytes(),
+      value: u32_to_bytes(value as u32),
       r#type: Type::Usigned,
     }
   }
@@ -153,24 +215,17 @@ impl Display for TypedByte {
       f,
       "{}",
       match self.r#type {
-        Type::Usigned =>
-          format!("{}", u32::from_be_bytes(self.value)),
-        Type::Signed =>
-          format!("i{}", i32::from_be_bytes(self.value)),
-        Type::Floating =>
-          format!("f{}", f32::from_be_bytes(self.value)),
+        Type::Usigned => format!("{}", u32_from_bytes(self.value)),
+        Type::Signed => format!("i{}", i32_from_bytes(self.value)),
+        Type::Floating => format!("f{}", f32_from_bytes(self.value)),
       }
     )
   }
 }
 
 impl TypedByte {
-  pub fn force_u32(&self) -> Option<u32> {
-    if self.r#type != Type::Usigned {
-      None
-    } else {
-      Some(u32::from_be_bytes(self.value))
-    }
+  pub fn force_u32(&self) -> u32 {
+    u32_from_bytes(self.value)
   }
   pub fn convert(&mut self, to_convert: Type) {
     self.r#type = to_convert;
@@ -179,33 +234,27 @@ impl TypedByte {
       Type::Usigned => match self.r#type {
         Type::Usigned => {}
         Type::Signed => {
-          self.value =
-            (i32::from_be_bytes(self.value) as u32).to_be_bytes()
+          self.value = u32_to_bytes(i32_from_bytes(self.value) as u32)
         }
         Type::Floating => {
-          self.value =
-            (f32::from_be_bytes(self.value) as u32).to_be_bytes()
+          self.value = u32_to_bytes(f32_from_bytes(self.value) as u32)
         }
       },
       Type::Signed => match self.r#type {
         Type::Usigned => {
-          self.value =
-            (u32::from_be_bytes(self.value) as i32).to_be_bytes()
+          self.value = i32_to_bytes(u32_from_bytes(self.value) as i32)
         }
         Type::Signed => {}
         Type::Floating => {
-          self.value =
-            (f32::from_be_bytes(self.value) as i32).to_be_bytes()
+          self.value = i32_to_bytes(f32_from_bytes(self.value) as i32)
         }
       },
       Type::Floating => match self.r#type {
         Type::Usigned => {
-          self.value =
-            (u32::from_be_bytes(self.value) as f32).to_be_bytes()
+          self.value = f32_to_bytes(u32_from_bytes(self.value) as f32)
         }
         Type::Signed => {
-          self.value =
-            (i32::from_be_bytes(self.value) as f32).to_be_bytes()
+          self.value = f32_to_bytes(i32_from_bytes(self.value) as f32)
         }
         Type::Floating => {}
       },
@@ -213,11 +262,12 @@ impl TypedByte {
   }
 }
 
-#[derive(Default, Debug)]
-pub struct Stack<T> {
-  pub vec: Vec<T>,
+#[derive(Debug)]
+pub struct Stack<const A: usize> {
+  pub vec: [TypedByte; A],
+  pub sx: usize,
 }
-impl<T: std::fmt::Debug> Display for Stack<T> {
+impl<const A: usize> Display for Stack<A> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let mut string = String::new();
     for i in &self.vec {
@@ -226,23 +276,37 @@ impl<T: std::fmt::Debug> Display for Stack<T> {
     write!(f, "[{}]", string)
   }
 }
-impl<T> Deref for Stack<T> {
-  type Target = Vec<T>;
+impl<const A: usize> Deref for Stack<A> {
+  type Target = [TypedByte; A];
   fn deref(&self) -> &Self::Target {
     &self.vec
   }
 }
-impl<T> DerefMut for Stack<T> {
+impl<const A: usize> DerefMut for Stack<A> {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.vec
   }
 }
-impl<T: Copy> Stack<T> {
-  pub fn top(&self) -> Option<T> {
-    if !self.vec.is_empty() {
-      return Some(self.vec[self.len() - 1]);
+impl<const A: usize> Stack<A> {
+  pub const fn new() -> Self {
+    Self {
+      sx: 0,
+      vec: [TypedByte {
+        value: [0; 4],
+        r#type: Type::Usigned,
+      }; A],
     }
-    None
+  }
+
+  pub fn top(&self) -> TypedByte {
+    self.vec[self.sx]
+  }
+  pub fn pop(&mut self) {
+    self.sx = self.sx.max(1) - 1;
+  }
+  pub fn push(&mut self, a: TypedByte) {
+    self.sx += 1;
+    self.vec[self.sx] = a;
   }
 }
 

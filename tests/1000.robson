@@ -1,0 +1,20 @@
+loop:
+
+robson robson
+fudeu 0
+comeu 1000
+lambeu :continue
+robson robson robson robson robson robson robson robson robson
+lambeu :end
+continue:
+
+robson
+comeu 0
+fudeu 0
+comeu 1
+robson robson robson robson robson robson robson robson robson robson
+comeu 0
+
+robson robson robson robson robson robson robson robson robson
+lambeu :loop
+end:

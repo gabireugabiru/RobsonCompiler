@@ -23,12 +23,13 @@ pub struct Compiler {
   offset: usize,
   inner: usize,
   path: String,
+  is_static: bool,
   macro_params: Option<HashMap<String, String>>,
-  macro_current: Stack<usize>,
-  macro_jump: Stack<usize>,
+  macro_current: Stack<10>,
+  macro_jump: Stack<10>,
 }
 impl Compiler {
-  pub fn new(
+  pub fn new<'a>(
     mut path: String,
     infra: Box<dyn CompilerInfra>,
   ) -> Result<Self, IError> {
@@ -49,13 +50,12 @@ impl Compiler {
       }
       path = new_path
         .to_str()
-        .ok_or(IError::message(format!(
+        .ok_or(IError::message(&format!(
           "Failed to parse the path stdrb/{}",
           path
         )))?
         .to_string();
     }
-    println!("{path}");
     let lines = infra.lines(&path)?;
     Ok(Self {
       buffer: Vec::new(),
@@ -69,8 +69,9 @@ impl Compiler {
       current_command: 0,
       names: HashMap::new(),
       compiled_stack: Vec::new(),
-      macro_jump: Stack::default(),
-      macro_current: Stack::default(),
+      macro_jump: Stack::new(),
+      macro_current: Stack::new(),
+      is_static: true,
       opcode_params: [
         0, 3, 3, 1, 3, 1, 3, 0, 0, 1, 1, 0, 1, 1, 0, 1, 0,
       ],
@@ -121,6 +122,7 @@ impl Compiler {
   ) {
     self.files = new_compiled_files;
   }
+
   pub fn set_macro_params(
     &mut self,
     params: HashMap<String, String>,
@@ -152,6 +154,7 @@ impl Compiler {
     if self.macro_params.is_some() {
       self.pos += 1;
     }
+
     loop {
       if self.verify_index_overflow(self.pos) {
         break;
@@ -175,8 +178,10 @@ impl Compiler {
       replace_params!(self, string);
 
       if string == "SEMPRE#ROBSON" {
-        if let Some(top) = self.macro_jump.top() {
-          self.pos = top;
+        self.is_static = false;
+        if self.macro_jump.sx != 0 {
+          // if let Some(top) = self.macro_jump.top() {
+          self.pos = self.macro_jump.top().into();
           continue;
         } else {
           self.pos += 1;
@@ -223,6 +228,7 @@ impl Compiler {
         compiler.set_offset(self.current_command + self.offset);
 
         let buffer = compiler.compile()?;
+
         self.current_command += buffer.len() / 15;
         for i in buffer {
           self.buffer.push(i);
@@ -240,14 +246,10 @@ impl Compiler {
             split2[0][1..].split("robsons").collect();
 
           if inside.len() != 2 {
-            return Err(IError::message(format!(
-              "Malformated robsons macro at {string}"
-            )));
+            return ierror!("Malformated robsons macro at {string}");
           }
           if inside[1].trim().is_empty() {
-            return Err(IError::message(format!(
-              "Malformated robsons macro at {string}"
-            )));
+            return ierror!("Malformated robsons macro at {string}");
           }
 
           let mut compiler = compiler!(inside[1].trim(), self.infra);
@@ -290,6 +292,7 @@ impl Compiler {
           compiler.set_offset(self.current_command + self.offset);
 
           let buffer = compiler.compile()?;
+
           self.current_command += buffer.len() / 15;
           for i in buffer {
             self.buffer.push(i);
@@ -373,10 +376,6 @@ impl Compiler {
       None => {
         let mut compiler = compiler!(path, self.infra);
 
-        self
-          .infra
-          .color_print(format!("Preloading macro {path}\n"), 14);
-
         let params_count = compiler.get_file_params()?;
         let mut params = HashMap::new();
 
@@ -401,6 +400,7 @@ impl Compiler {
           params.insert(format!("{i}$ROBSON"), line);
           pos += 1;
         }
+
         compiler.set_offset(command_number);
         compiler.set_preload(true);
         compiler.inner_in(self.inner);
@@ -414,10 +414,13 @@ impl Compiler {
           Ok(_) => {
             // inherit the compiled files
             self.files = compiler.files.clone();
-            self.files.insert(
-              path.to_owned(),
-              (compiler.current_command, params_count.len()),
-            );
+
+            if compiler.is_static {
+              self.files.insert(
+                path.to_owned(),
+                (compiler.current_command, params_count.len()),
+              );
+            }
             Ok((compiler.current_command, params_count.len()))
           }
           Err(err) => Err(err),
@@ -438,6 +441,7 @@ impl Compiler {
         let mut compiler = compiler!(path, self.infra);
 
         self.infra.color_print(format!("Preloading {path}\n"), 14);
+
         compiler.set_offset(command_number);
         compiler.set_preload(true);
         compiler.inner_in(self.inner);
@@ -450,9 +454,13 @@ impl Compiler {
           Ok(_) => {
             // inherit the compiled files
             self.files = compiler.files.clone();
-            self
-              .files
-              .insert(path.to_owned(), (compiler.current_command, 0));
+            if compiler.is_static {
+              self.files.insert(
+                path.to_owned(),
+                (compiler.current_command, 0),
+              );
+            }
+
             Ok((compiler.current_command, 0))
           }
           Err(err) => Err(err),
@@ -489,8 +497,8 @@ impl Compiler {
       replace_params!(self, string);
 
       if string == "SEMPRE#ROBSON" {
-        if let Some(top) = self.macro_jump.top() {
-          self.pos = top;
+        if self.macro_jump.sx != 0 {
+          self.pos = self.macro_jump.top().into();
           continue;
         } else {
           self.pos += 1;
@@ -592,8 +600,8 @@ impl Compiler {
       }
       self.pos += 1;
     }
-    self.macro_current = Stack::default();
-    self.macro_jump = Stack::default();
+    self.macro_current = Stack::new();
+    self.macro_jump = Stack::new();
     self.pos = 0;
     Ok(())
   }
@@ -662,6 +670,7 @@ impl Compiler {
     if parameter.is_empty() {
       return Ok((0u32.into(), 0, 0, false));
     }
+
     let splited: Vec<&str> = parameter.split(' ').collect();
 
     if splited.len() < 2 {
@@ -736,7 +745,7 @@ impl Compiler {
         let value = value.replace(':', "");
 
         let a = self.names.get(&value).ok_or_else(|| {
-          IError::message(format!(
+          IError::message(&format!(
             "Cant find '{}' in {}",
             value, self.path
           ))
@@ -747,10 +756,11 @@ impl Compiler {
         let value = splited[1].trim().parse::<u32>()?;
         Ok((value.into(), 3, 0, convert))
       }
-      token => Err(IError::message(format!(
+      token => ierror!(
         "Unexpect token for param at line {}, '{}'",
-        self.pos, token
-      ))),
+        self.pos,
+        token
+      ),
     }
   }
 }

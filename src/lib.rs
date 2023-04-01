@@ -1,4 +1,5 @@
 #![deny(clippy::unwrap_used)]
+#![feature(const_mut_refs)]
 
 use data_struct::IError;
 
@@ -24,8 +25,9 @@ pub trait Infra {
   fn print(&mut self, to_print: &[u8]);
   fn println(&mut self, to_print: String);
   fn flush(&mut self);
-  fn enable_raw_mode(&self) -> Result<(), IError>;
-  fn disable_raw_mode(&self) -> Result<(), IError>;
+  fn is_raw_mode(&self) -> bool;
+  fn enable_raw_mode(&mut self) -> Result<(), IError>;
+  fn disable_raw_mode(&mut self) -> Result<(), IError>;
   fn clear_purge(&mut self) -> Result<(), IError>;
   fn clear_all(&mut self) -> Result<(), IError>;
   fn poll(&self, duration: u64) -> Result<u32, IError>;

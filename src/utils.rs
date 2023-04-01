@@ -2,63 +2,63 @@ use std::collections::HashMap;
 
 use crate::{data_struct::IError, macros::ierror};
 
-pub fn u32_add(a: [u8; 4], b: [u8; 4]) -> u32 {
-  u32::from_be_bytes(a) + u32::from_be_bytes(b)
+pub const fn u32_add(a: [u8; 4], b: [u8; 4]) -> u32 {
+  u32_from_bytes(a) + u32_from_bytes(b)
 }
 
 pub fn f32_add(a: [u8; 4], b: [u8; 4]) -> f32 {
-  f32::from_be_bytes(a) + f32::from_be_bytes(b)
+  f32_from_bytes(a) + f32_from_bytes(b)
 }
 
-pub fn i32_add(a: [u8; 4], b: [u8; 4]) -> i32 {
-  i32::from_be_bytes(a) + i32::from_be_bytes(b)
+pub const fn i32_add(a: [u8; 4], b: [u8; 4]) -> i32 {
+  i32_from_bytes(a) + i32_from_bytes(b)
 }
 
-pub fn u32_sub(a: [u8; 4], b: [u8; 4]) -> u32 {
-  u32::from_be_bytes(a) - u32::from_be_bytes(b)
+pub const fn u32_sub(a: [u8; 4], b: [u8; 4]) -> u32 {
+  u32_from_bytes(a) - u32_from_bytes(b)
 }
 
 pub fn f32_sub(a: [u8; 4], b: [u8; 4]) -> f32 {
-  f32::from_be_bytes(a) - f32::from_be_bytes(b)
+  f32_from_bytes(a) - f32_from_bytes(b)
 }
 
-pub fn i32_sub(a: [u8; 4], b: [u8; 4]) -> i32 {
-  i32::from_be_bytes(a) - i32::from_be_bytes(b)
+pub const fn i32_sub(a: [u8; 4], b: [u8; 4]) -> i32 {
+  i32_from_bytes(a) - i32_from_bytes(b)
 }
-pub fn u32_mul(a: [u8; 4], b: [u8; 4]) -> u32 {
-  u32::from_be_bytes(a) * u32::from_be_bytes(b)
+pub const fn u32_mul(a: [u8; 4], b: [u8; 4]) -> u32 {
+  u32_from_bytes(a) * u32_from_bytes(b)
 }
 
 pub fn f32_mul(a: [u8; 4], b: [u8; 4]) -> f32 {
-  f32::from_be_bytes(a) * f32::from_be_bytes(b)
+  f32_from_bytes(a) * f32_from_bytes(b)
 }
 
-pub fn i32_mul(a: [u8; 4], b: [u8; 4]) -> i32 {
-  i32::from_be_bytes(a) * i32::from_be_bytes(b)
+pub const fn i32_mul(a: [u8; 4], b: [u8; 4]) -> i32 {
+  i32_from_bytes(a) * i32_from_bytes(b)
 }
 
-pub fn u32_div(a: [u8; 4], b: [u8; 4]) -> u32 {
-  u32::from_be_bytes(a) / u32::from_be_bytes(b)
+pub const fn u32_div(a: [u8; 4], b: [u8; 4]) -> u32 {
+  u32_from_bytes(a) / u32_from_bytes(b)
 }
 
 pub fn f32_div(a: [u8; 4], b: [u8; 4]) -> f32 {
-  f32::from_be_bytes(a) / f32::from_be_bytes(b)
+  f32_from_bytes(a) / f32_from_bytes(b)
 }
 
-pub fn i32_div(a: [u8; 4], b: [u8; 4]) -> i32 {
-  i32::from_be_bytes(a) / i32::from_be_bytes(b)
+pub const fn i32_div(a: [u8; 4], b: [u8; 4]) -> i32 {
+  i32_from_bytes(a) / i32_from_bytes(b)
 }
 
-pub fn u32_mod(a: [u8; 4], b: [u8; 4]) -> u32 {
-  u32::from_be_bytes(a) % u32::from_be_bytes(b)
+pub const fn u32_mod(a: [u8; 4], b: [u8; 4]) -> u32 {
+  u32_from_bytes(a) % u32_from_bytes(b)
 }
 
 pub fn f32_mod(a: [u8; 4], b: [u8; 4]) -> f32 {
-  f32::from_be_bytes(a) % f32::from_be_bytes(b)
+  f32_from_bytes(a) % f32_from_bytes(b)
 }
 
-pub fn i32_mod(a: [u8; 4], b: [u8; 4]) -> i32 {
-  i32::from_be_bytes(a) % i32::from_be_bytes(b)
+pub const fn i32_mod(a: [u8; 4], b: [u8; 4]) -> i32 {
+  i32_from_bytes(a) % i32_from_bytes(b)
 }
 
 pub fn approx_equal(a: f32, b: f32, decimal_places: u8) -> bool {
@@ -67,7 +67,29 @@ pub fn approx_equal(a: f32, b: f32, decimal_places: u8) -> bool {
   let b = (b * factor).trunc();
   a == b
 }
-pub fn create_kind_byte(
+
+pub const fn u32_to_bytes(number: u32) -> [u8; 4] {
+  unsafe { std::mem::transmute(number) }
+}
+pub const fn u32_from_bytes(bytes: [u8; 4]) -> u32 {
+  unsafe { std::mem::transmute(bytes) }
+}
+
+pub const fn i32_to_bytes(number: i32) -> [u8; 4] {
+  unsafe { std::mem::transmute(number) }
+}
+pub const fn i32_from_bytes(bytes: [u8; 4]) -> i32 {
+  unsafe { std::mem::transmute(bytes) }
+}
+
+pub const fn f32_to_bytes(number: f32) -> [u8; 4] {
+  unsafe { std::mem::transmute(number) }
+}
+pub const fn f32_from_bytes(bytes: [u8; 4]) -> f32 {
+  unsafe { std::mem::transmute(bytes) }
+}
+
+pub const fn create_kind_byte(
   type1: u8,
   type2: u8,
   type3: u8,
@@ -80,7 +102,7 @@ pub fn create_kind_byte(
   kind_byte += type4;
   kind_byte
 }
-pub fn convert_kind_byte(a: u8) -> [usize; 4] {
+pub const fn convert_kind_byte(a: u8) -> [usize; 4] {
   [
     (a >> 6) as usize,
     (((a >> 4) << 6) >> 6) as usize,
@@ -89,14 +111,14 @@ pub fn convert_kind_byte(a: u8) -> [usize; 4] {
   ]
 }
 
-pub fn create_two_bits(bits: [bool; 2]) -> u8 {
+pub const fn create_two_bits(bits: [bool; 2]) -> u8 {
   let mut byte = 0;
   byte += bits[0] as u8;
   byte += bits[1] as u8 * 2;
   byte
 }
 
-pub fn convert_two_bits(byte: u8) -> [bool; 2] {
+pub const fn convert_two_bits(byte: u8) -> [bool; 2] {
   [((byte << 7) >> 7) != 0, (byte >> 1) != 0]
 }
 
@@ -111,7 +133,7 @@ pub fn convert_macro_robson(
     return Ok((
       values
         .get(&expr)
-        .ok_or(IError::message(format!("Can't find {}", expr)))?
+        .ok_or(IError::message(&format!("Can't find {}", expr)))?
         .to_string(),
       false,
       false,
@@ -129,6 +151,7 @@ pub fn convert_macro_robson(
     .get(splited[1])
     .ok_or(IError::message("Malformated macro param"))?
     .to_owned();
+
   let mut last: Option<char> = None;
   let mut has_next = false;
   let chs = splited[0].chars().collect::<Vec<char>>();
@@ -158,12 +181,7 @@ pub fn convert_macro_robson(
             let mut bytes: [u8; 4] = [0, 0, 0, 0];
 
             i.encode_utf8(&mut bytes);
-            let mut zeroes = 0;
-            for a in bytes {
-              if a == 0 {
-                zeroes += 1;
-              }
-            }
+
             let prefix = match char {
               'c' => "comeu",
               'f' => "fudeu",
@@ -173,7 +191,8 @@ pub fn convert_macro_robson(
                 );
               }
             };
-            let number = u32::from_be_bytes(bytes) >> (8 * zeroes);
+
+            let number = u32_from_bytes(bytes);
             value.push_str(&format!("{prefix} {number}\n"));
           }
         }
